@@ -1,0 +1,3420 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Render Pagoda</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js r128 Core + OrbitControls + GLTFExporter + PostProcessing (UnrealBloomPass) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #070a0e;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #f8fafc;
+        }
+
+        #canvas-container {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            touch-action: none;
+        }
+
+        #canvas-container.cursor-orbit {
+            cursor: default;
+        }
+
+        #canvas-container.cursor-pan {
+            cursor: grab;
+        }
+
+        #canvas-container.cursor-pan:active {
+            cursor: grabbing;
+        }
+
+        #canvas-container.cursor-walk {
+            cursor: all-scroll;
+        }
+
+        /* Architectural Blueprint Technical Grid Overlay (Only visible in Blueprint Mode) */
+        #blueprint-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            background-image:
+                linear-gradient(to right, rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+                linear-gradient(to right, rgba(56, 189, 248, 0.14) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(56, 189, 248, 0.14) 1px, transparent 1px);
+            background-size: 28px 28px, 28px 28px, 140px 140px, 140px 140px;
+            box-shadow: inset 0 0 110px rgba(3, 10, 24, 0.85);
+        }
+
+        #blueprint-overlay.active {
+            opacity: 1;
+        }
+
+        /* Single Floating Glass Pill Dock (bottom: 18px, 96% unobstructed viewport) */
+        #spatial-dock-wrapper {
+            position: fixed;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            max-width: 98vw;
+        }
+
+        #spatial-dock-wrapper.dock-dragging {
+            opacity: 0.25 !important;
+        }
+
+        #spatial-dock-wrapper.dock-idle {
+            opacity: 0.32;
+        }
+
+        #spatial-dock-wrapper:hover {
+            opacity: 1 !important;
+        }
+
+        #spatial-dock-wrapper.dock-zen {
+            opacity: 0 !important;
+            transform: translate(-50%, 28px);
+            pointer-events: none !important;
+        }
+
+        #spatial-dock {
+            height: 54px;
+            padding: 0 10px;
+            border-radius: 999px;
+            background: rgba(10, 13, 18, 0.76);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 16px 42px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            pointer-events: auto;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        #spatial-dock::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Compact Icon + 1-Word Label Dock Button */
+        .dock-icon-btn {
+            position: relative;
+            min-width: 44px;
+            height: 42px;
+            padding: 0 6px;
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            color: rgba(241, 245, 249, 0.84);
+            background: transparent;
+            border: 1px solid transparent;
+            transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+            outline: none;
+            flex-shrink: 0;
+        }
+
+        .dock-icon-btn span.dock-lbl {
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            line-height: 1;
+            opacity: 0.82;
+            pointer-events: none;
+        }
+
+        .dock-icon-btn svg {
+            pointer-events: none;
+        }
+
+        .dock-icon-btn:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.16);
+            transform: translateY(-1px);
+        }
+
+        .dock-icon-btn:active {
+            transform: translateY(0) scale(0.95);
+        }
+
+        .dock-icon-btn.active {
+            color: #fbbf24;
+            background: rgba(245, 158, 11, 0.18);
+            border-color: rgba(245, 158, 11, 0.55);
+            box-shadow: 0 0 14px rgba(245, 158, 11, 0.22);
+        }
+
+        .dock-icon-btn.active-cyan {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.18);
+            border-color: rgba(56, 189, 248, 0.55);
+            box-shadow: 0 0 14px rgba(56, 189, 248, 0.22);
+        }
+
+        /* 1px Vertical Hairline Divider */
+        .dock-divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.14);
+            margin: 0 3px;
+            flex-shrink: 0;
+        }
+
+        /* Single-Line Hover Pill Tooltip */
+        #dock-tooltip {
+            position: absolute;
+            bottom: 62px;
+            padding: 4px 11px;
+            border-radius: 999px;
+            background: rgba(9, 11, 16, 0.92);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #f8fafc;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.14s ease, transform 0.14s ease;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+            z-index: 45;
+        }
+
+        #dock-tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Compact Micro-Popovers (280px width, anchored cleanly above dock) */
+        .micro-popover {
+            position: absolute;
+            bottom: 66px;
+            width: 284px;
+            border-radius: 18px;
+            background: rgba(11, 14, 20, 0.88);
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow: 0 22px 55px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+            padding: 13px;
+            pointer-events: auto;
+            display: none;
+            z-index: 50;
+        }
+
+        .micro-popover.open {
+            display: block;
+            animation: popFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes popFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px) scale(0.97);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Minimal Pill Buttons inside Popovers */
+        .pop-pill {
+            padding: 6px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #cbd5e1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            transition: all 0.14s ease;
+            cursor: pointer;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .pop-pill:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.22);
+        }
+
+        .pop-pill.active {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.6);
+            color: #fbbf24;
+        }
+
+        .pop-pill.active-cyan {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: rgba(56, 189, 248, 0.6);
+            color: #38bdf8;
+        }
+
+        /* Sleek Range Sliders inside Popovers */
+        input[type="range"].studio-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.16);
+            border-radius: 999px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"].studio-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #fbbf24;
+            cursor: pointer;
+            border: 2px solid #090b10;
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.65);
+        }
+
+        /* Subtle Top-Center Toast, Walk HUD & Audio Enable Pill */
+        #top-pill-container {
+            position: fixed;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 35;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .floating-pill-notice {
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(10, 13, 18, 0.78);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #e2e8f0;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        @keyframes bellRingGlow {
+            0% {
+                box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.8);
+            }
+
+            70% {
+                box-shadow: 0 0 0 14px rgba(251, 191, 36, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+            }
+        }
+
+        .bell-strike-anim {
+            animation: bellRingGlow 0.95s ease-out;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- 100% Fullscreen 3D Viewport -->
+    <div id="canvas-container" class="cursor-orbit"></div>
+
+    <!-- Blueprint Mode Technical Grid Overlay -->
+    <div id="blueprint-overlay">
+        <div class="fixed top-5 left-6 font-mono text-[10px] text-sky-400/85 tracking-widest uppercase space-y-0.5">
+            <div>ARCHITECTURAL BLUEPRINT // ORTHO-PERSPECTIVE WIREFRAME</div>
+            <div>CARPENTRY: MITESAKI KUMIMONO + FUTANO-KI RAFTERS + SHINBASHIRA CORE</div>
+        </div>
+    </div>
+
+    <!-- Top-Center Transient Toast, Walk Mode HUD Pill & First-Click Audio Prompt -->
+    <div id="top-pill-container">
+        <button id="audio-init-pill"
+            class="floating-pill-notice pointer-events-auto flex items-center gap-2 hover:border-amber-400/60 cursor-pointer">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+            <span>Click to Enable Continuous Temple Bell ("Tong") Audio</span>
+        </button>
+
+        <!-- Walk Mode Eye-Level HUD Pill (Hidden unless Walk Mode is active) -->
+        <div id="walk-hud-pill"
+            class="floating-pill-notice pointer-events-auto hidden items-center gap-2.5 border-amber-400/40">
+            <span class="text-amber-300 font-mono text-[10px] uppercase">Walk Mode</span>
+            <span class="text-slate-300 text-[11px]">Drag anywhere to look up (+85°) or around · WASD/Arrows to
+                stroll</span>
+            <span id="walk-pitch-readout" class="font-mono text-[10px] text-sky-300">Pitch: +5°</span>
+            <button id="btn-walk-look-up"
+                class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] text-amber-200 cursor-pointer">Look
+                Up at Eaves</button>
+            <button id="btn-walk-reset-eye"
+                class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-[10px] text-amber-300 cursor-pointer">Reset
+                Eye Level</button>
+        </div>
+
+        <div id="studio-toast" class="floating-pill-notice opacity-0 transform -translate-y-2 pointer-events-none">
+            Zen Mode — Press H or Tab to restore UI
+        </div>
+    </div>
+
+    <!-- ========================================================================== -->
+    <!-- SINGLE FLOATING GLASS PILL DOCK + MICRO-POPOVERS (ZERO BUBBLING BUGS)      -->
+    <!-- ========================================================================== -->
+    <div id="spatial-dock-wrapper">
+
+        <!-- Popover 1: Camera Views & Reset View -->
+        <div id="popover-views" class="micro-popover">
+            <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
+                <span class="text-[10px] font-mono uppercase tracking-wider text-slate-400">Camera Views</span>
+                <span class="text-[10px] font-mono text-amber-400/90">Dbl-Click Scene to Focus</span>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5">
+                <button id="cam-preset-1" data-preset="1" class="pop-pill active">
+                    <span>Hero Pond</span>
+                    <span class="font-mono text-[9px] opacity-60">01</span>
+                </button>
+                <button id="cam-preset-2" data-preset="2" class="pop-pill">
+                    <span>Isometric</span>
+                    <span class="font-mono text-[9px] opacity-60">02</span>
+                </button>
+                <button id="cam-preset-3" data-preset="3" class="pop-pill">
+                    <span>Kumimono Eaves</span>
+                    <span class="font-mono text-[9px] opacity-60">03</span>
+                </button>
+                <button id="cam-preset-4" data-preset="4" class="pop-pill">
+                    <span>Torii Gate</span>
+                    <span class="font-mono text-[9px] opacity-60">04</span>
+                </button>
+            </div>
+            <div class="mt-2 pt-2 border-t border-white/10">
+                <button id="btn-recenter-view"
+                    class="pop-pill w-full justify-center gap-2 text-amber-300 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20">
+                    <span>⌖</span>
+                    <span>Reset & Recenter Camera View</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Popover 2: Atmosphere (Time of Day & 4 Seasons) -->
+        <div id="popover-atmos" class="micro-popover">
+            <div class="mb-2.5">
+                <div class="text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5">Time of Day</div>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button id="tod-dusk" data-tod="dusk" class="pop-pill active justify-center">Dusk</button>
+                    <button id="tod-night" data-tod="night" class="pop-pill justify-center">Moonlit</button>
+                    <button id="tod-dawn" data-tod="dawn" class="pop-pill justify-center">Dawn</button>
+                </div>
+            </div>
+            <div class="pt-2 border-t border-white/10">
+                <div class="text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1.5">4 Seasons & Weather
+                </div>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button id="season-sakura" data-season="sakura" class="pop-pill active">
+                        <span>Spring Sakura</span>
+
+                    </button>
+                    <button id="season-rain" data-season="rain" class="pop-pill">
+                        <span>Monsoon Rain</span>
+
+                    </button>
+                    <button id="season-momiji" data-season="momiji" class="pop-pill">
+                        <span>Autumn Momiji</span>
+
+                    </button>
+                    <button id="season-snow" data-season="snow" class="pop-pill">
+                        <span>Winter Yukimi</span>
+
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Popover 3: Architect DNA & X-Ray Shinbashira Cutaway Lab -->
+        <div id="popover-dna" class="micro-popover">
+            <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-white/10">
+                <span class="text-[10px] font-mono uppercase tracking-wider text-amber-400">Architect DNA Lab</span>
+                <span id="dna-poly-stat" class="text-[10px] font-mono text-emerald-400">142,800 TRIS</span>
+            </div>
+
+            <!-- Pagoda Stories: 3 / 5 / 7 -->
+            <div class="mb-2.5">
+                <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                    <span>Pagoda Stories</span>
+                    <span id="label-stories" class="font-mono text-amber-300">5 Tiers (Gojū)</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <button id="dna-tier-3" data-tiers="3" class="pop-pill justify-center">3 Tiers</button>
+                    <button id="dna-tier-5" data-tiers="5" class="pop-pill active justify-center">5 Tiers</button>
+                    <button id="dna-tier-7" data-tiers="7" class="pop-pill justify-center">7 Tiers</button>
+                </div>
+            </div>
+
+            <!-- Roof Curvature (Sori) -->
+            <div class="mb-2.5">
+                <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                    <span>Roof Eave Curve (Sori)</span>
+                    <span id="label-sori" class="font-mono text-amber-300">1.05x</span>
+                </div>
+                <input type="range" id="slider-sori" min="0.3" max="2.0" step="0.05" value="1.05" class="studio-slider">
+            </div>
+
+            <!-- X-Ray Shinbashira Seismic Core Cutaway -->
+            <div class="mb-2.5">
+                <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                    <span>X-Ray Shinbashira Cutaway</span>
+                    <span id="label-cutaway" class="font-mono text-sky-300">0%</span>
+                </div>
+                <input type="range" id="slider-cutaway" min="0" max="100" step="1" value="0" class="studio-slider">
+            </div>
+
+            <!-- Evolution Pass Scrubber (1 to 4) -->
+            <div class="pt-2 border-t border-white/10">
+                <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-1.5">
+                    <span>CRITIC EVOLUTION</span>
+                    <span id="label-pass" class="text-emerald-300">PASS 4: FINAL PBR</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1">
+                    <button id="pass-btn-1" data-pass="1"
+                        class="pop-pill justify-center font-mono text-[10px]">P1</button>
+                    <button id="pass-btn-2" data-pass="2"
+                        class="pop-pill justify-center font-mono text-[10px]">P2</button>
+                    <button id="pass-btn-3" data-pass="3"
+                        class="pop-pill justify-center font-mono text-[10px]">P3</button>
+                    <button id="pass-btn-4" data-pass="4"
+                        class="pop-pill active justify-center font-mono text-[10px]">P4</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Popover 4: Continuous Bonshō Bell Cadence & Temple Audio Mixer -->
+        <div id="popover-audio" class="micro-popover">
+            <div class="flex items-center justify-between mb-2.5 pb-1.5 border-b border-white/10">
+                <span class="text-[10px] font-mono uppercase tracking-wider text-amber-400">Bonshō Bell &
+                    Ambience</span>
+                <button id="btn-audio-mute"
+                    class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer">
+                    ACTIVE
+                </button>
+            </div>
+
+            <!-- Continuous Temple Bell ("Tong") Cadence Selector -->
+            <div class="mb-2.5">
+                <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                    <span>Continuous Bell ("Tong") Cadence</span>
+                    <span id="lbl-bell-cadence" class="font-mono text-amber-300">Every 6s</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1">
+                    <button id="cadence-4" data-cadence="4"
+                        class="pop-pill justify-center font-mono text-[10px]">4s</button>
+                    <button id="cadence-6" data-cadence="6"
+                        class="pop-pill active justify-center font-mono text-[10px]">6s</button>
+                    <button id="cadence-10" data-cadence="10"
+                        class="pop-pill justify-center font-mono text-[10px]">10s</button>
+                    <button id="cadence-0" data-cadence="0"
+                        class="pop-pill justify-center font-mono text-[10px]">Manual</button>
+                </div>
+            </div>
+
+            <div class="space-y-2.5">
+                <div>
+                    <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                        <span>Master Gain</span>
+                        <span id="lbl-vol-master" class="font-mono text-amber-300">90%</span>
+                    </div>
+                    <input type="range" id="slider-vol-master" min="0" max="100" value="90" class="studio-slider">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                        <span>Bonshō Bell ("Tong") Resonance</span>
+                        <span id="lbl-vol-bell" class="font-mono text-amber-300">95%</span>
+                    </div>
+                    <input type="range" id="slider-vol-bell" min="0" max="100" value="95" class="studio-slider">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                        <span>Subtle Wind & Water Air</span>
+                        <span id="lbl-vol-amb" class="font-mono text-amber-300">40%</span>
+                    </div>
+                    <input type="range" id="slider-vol-amb" min="0" max="100" value="40" class="studio-slider">
+                </div>
+            </div>
+
+            <div class="mt-3 pt-2 border-t border-white/10">
+                <button id="btn-trigger-shishi"
+                    class="pop-pill w-full justify-center gap-2 text-amber-300 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20">
+
+                    <span>Clack Bamboo Shishi-odoshi</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Single-Line Hover Tooltip -->
+        <div id="dock-tooltip">Orbit Rotate</div>
+
+        <!-- THE FLOATING GLASS PILL DOCK (11 Labeled Icon Buttons) -->
+        <nav id="spatial-dock" aria-label="Studio Controls">
+            <!-- 1. Orbit -->
+            <button id="dock-btn-orbit" class="dock-icon-btn active" data-tooltip="Orbit Rotate (Left-Click Drag)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9" />
+                    <ellipse cx="12" cy="12" rx="9" ry="3.8" />
+                    <path d="M12 3a15 15 0 0 1 0 18" />
+                </svg>
+                <span class="dock-lbl">Orbit</span>
+            </button>
+
+            <!-- 2. Drag (Pan) -->
+            <button id="dock-btn-pan" class="dock-icon-btn"
+                data-tooltip="Free Drag / Pan Scene (Left-Drag or Hold Spacebar)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11" />
+                </svg>
+                <span class="dock-lbl">Drag</span>
+            </button>
+
+            <!-- 3. Walk (First-Person with +85° Head Tilt) -->
+            <button id="dock-btn-walk" class="dock-icon-btn"
+                data-tooltip="First-Person Walk (+85° Upward Head Tilt + WASD)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <circle cx="13" cy="4.5" r="2" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 9l3-1 3 3-2 4 3 5M10 9l-2 4 2 2-2 5" />
+                </svg>
+                <span class="dock-lbl">Walk</span>
+            </button>
+
+            <!-- 4. 360° Auto-Orbit (Directly on Main Dock!) -->
+            <button id="dock-btn-360" class="dock-icon-btn" data-tooltip="Toggle 360° Cinematic Auto-Orbit">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span class="dock-lbl">360°</span>
+            </button>
+
+            <!-- 5. Views Popover -->
+            <button id="dock-btn-views" class="dock-icon-btn" data-popover="popover-views"
+                data-tooltip="Camera Presets & Recenter View">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <circle cx="12" cy="13" r="3.2" />
+                </svg>
+                <span class="dock-lbl">Views</span>
+            </button>
+
+            <div class="dock-divider"></div>
+
+            <!-- 6. Atmos Popover -->
+            <button id="dock-btn-atmos" class="dock-icon-btn" data-popover="popover-atmos"
+                data-tooltip="Atmosphere: Time of Day & 4 Seasons">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="4" />
+                    <path stroke-linecap="round"
+                        d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41" />
+                </svg>
+                <span class="dock-lbl">Atmos</span>
+            </button>
+
+            <!-- 7. DNA Popover -->
+            <button id="dock-btn-dna" class="dock-icon-btn" data-popover="popover-dna"
+                data-tooltip="Architect DNA: Stories, Curve & X-Ray Cutaway">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M4 6h16M4 12h16M4 18h16M8 4v4m8 2v4m-6 2v4" />
+                </svg>
+                <span class="dock-lbl">DNA</span>
+            </button>
+
+            <!-- 8. Mode Cycle (Render / Blueprint / Clay) -->
+            <button id="dock-btn-mode" class="dock-icon-btn"
+                data-tooltip="Cycle Pipeline Mode: PBR Render / Blueprint / Clay">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M12 3l9 4.5-9 4.5-9-4.5L12 3zm0 9l9-4.5v9L12 21l-9-4.5v-9L12 12zm0 0v9" />
+                </svg>
+                <span class="dock-lbl">Mode</span>
+            </button>
+
+            <div class="dock-divider"></div>
+
+            <!-- 9. Bell (Immediate Strike) -->
+            <button id="dock-btn-bell" class="dock-icon-btn text-amber-300"
+                data-tooltip="Strike Bronze Bonshō Temple Bell ('Tong' — Key: B)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V4a2 2 0 10-4 0v1.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                <span class="dock-lbl">Bell</span>
+            </button>
+
+            <!-- 10. Audio Popover -->
+            <button id="dock-btn-audio" class="dock-icon-btn active" data-popover="popover-audio"
+                data-tooltip="Bell Cadence (4s/6s/10s) & Volume Mixer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14" />
+                </svg>
+                <span class="dock-lbl">Audio</span>
+            </button>
+
+            <!-- 11. GLB Export -->
+            <button id="dock-btn-export" class="dock-icon-btn" data-tooltip="Export 3D Temple Scene to Blender (.GLB)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                </svg>
+                <span class="dock-lbl">GLB</span>
+            </button>
+        </nav>
+    </div>
+
+    <script>
+        // ============================================================================
+        // 1. PROCEDURAL PBR TEXTURES (KAWARA TILES, SHIKKUI PLASTER, GRANITE)
+        // ============================================================================
+        function createKawaraTileTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#181d24';
+            ctx.fillRect(0, 0, 512, 512);
+
+            const cols = 32;
+            const colW = 512 / cols;
+            for (let i = 0; i < cols; i++) {
+                const x = i * colW;
+                const grad = ctx.createLinearGradient(x, 0, x + colW, 0);
+                grad.addColorStop(0, '#0d1015');
+                grad.addColorStop(0.35, '#28313c');
+                grad.addColorStop(0.55, '#394452');
+                grad.addColorStop(0.85, '#171d24');
+                grad.addColorStop(1, '#0c0f14');
+                ctx.fillStyle = grad;
+                ctx.fillRect(x, 0, colW, 512);
+            }
+
+            const rows = 18;
+            const rowH = 512 / rows;
+            for (let j = 0; j < rows; j++) {
+                const y = j * rowH;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+                ctx.fillRect(0, y, 512, 3);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
+                ctx.fillRect(0, y + 3, 512, 2);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(4, 3);
+            return tex;
+        }
+
+        function createShikkuiWallTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#f2ece1';
+            ctx.fillRect(0, 0, 512, 256);
+
+            const dripGrad = ctx.createLinearGradient(0, 0, 0, 68);
+            dripGrad.addColorStop(0, 'rgba(35, 25, 20, 0.22)');
+            dripGrad.addColorStop(1, 'rgba(35, 25, 20, 0)');
+            ctx.fillStyle = dripGrad;
+            ctx.fillRect(0, 0, 512, 68);
+
+            const bays = 3;
+            const bayW = 512 / bays;
+            for (let b = 0; b < bays; b++) {
+                const bx = b * bayW;
+                ctx.strokeStyle = '#5c1814';
+                ctx.lineWidth = 10;
+                ctx.strokeRect(bx + 4, 4, bayW - 8, 248);
+
+                const winX = bx + 24;
+                const winY = 38;
+                const winW = bayW - 48;
+                const winH = 165;
+
+                const shojiGrad = ctx.createRadialGradient(
+                    winX + winW * 0.5, winY + winH * 0.5, 6,
+                    winX + winW * 0.5, winY + winH * 0.5, winW * 0.7
+                );
+                shojiGrad.addColorStop(0, '#ffdf9e');
+                shojiGrad.addColorStop(1, '#c98a4b');
+                ctx.fillStyle = shojiGrad;
+                ctx.fillRect(winX, winY, winW, winH);
+
+                ctx.fillStyle = '#6b1d18';
+                const bars = 8;
+                const step = winW / bars;
+                for (let k = 1; k < bars; k++) {
+                    ctx.fillRect(winX + k * step - 2, winY, 4, winH);
+                }
+                for (let h = 1; h < 5; h++) {
+                    ctx.fillRect(winX, winY + h * (winH / 5) - 1.5, winW, 3);
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            return tex;
+        }
+
+        function createStoneGraniteTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#6b7077';
+            ctx.fillRect(0, 0, 256, 256);
+
+            for (let i = 0; i < 4200; i++) {
+                ctx.fillStyle = Math.random() > 0.5 ? 'rgba(25,30,36,0.2)' : 'rgba(230,235,242,0.14)';
+                ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+            }
+
+            ctx.strokeStyle = 'rgba(20, 24, 28, 0.55)';
+            ctx.lineWidth = 3;
+            for (let y = 0; y < 256; y += 64) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(256, y);
+                ctx.stroke();
+                const offset = (y / 64) % 2 === 0 ? 0 : 64;
+                for (let x = offset; x < 256; x += 128) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x, y + 64);
+                    ctx.stroke();
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(3, 1);
+            return tex;
+        }
+
+        // ============================================================================
+        // 2. SCENE, RENDERER, SELECTIVE BLOOM COMPOSER & CAMERA CONTROLS
+        // ============================================================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x141322);
+        scene.fog = new THREE.FogExp2(0x1f172a, 0.0072);
+
+        const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.35, 420);
+        camera.position.set(22, 11.5, 36);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.12;
+        renderer.localClippingEnabled = true;
+        container.appendChild(renderer.domElement);
+
+        // Post-Processing Composer with Subtle, High-Threshold UnrealBloomPass
+        let composer = null;
+        let bloomPass = null;
+        try {
+            if (THREE.EffectComposer && THREE.RenderPass && THREE.UnrealBloomPass) {
+                composer = new THREE.EffectComposer(renderer);
+                const renderPass = new THREE.RenderPass(scene, camera);
+                composer.addPass(renderPass);
+
+                // Tuned strictly to threshold 0.88, strength 0.32, radius 0.35 so only warm lanterns & gold glints glow
+                bloomPass = new THREE.UnrealBloomPass(
+                    new THREE.Vector2(window.innerWidth, window.innerHeight),
+                    0.32,
+                    0.35,
+                    0.88
+                );
+                composer.addPass(bloomPass);
+            }
+        } catch (err) {
+            composer = null;
+        }
+
+        // Isolated X-Ray Cutaway Plane (Only attached to outer pagoda materials when slider > 0%)
+        const xrayClipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, -0.35).normalize(), 40);
+
+        // OrbitControls with Effortless Screen-Space Panning (panSpeed = 1.8)
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 9.5, -2.0);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.055;
+        controls.enablePan = true;
+        controls.screenSpacePanning = true;
+        controls.panSpeed = 1.8;
+        controls.rotateSpeed = 0.88;
+        controls.zoomSpeed = 1.15;
+        controls.minDistance = 2.5;
+        controls.maxDistance = 155.0;
+        controls.maxPolarAngle = Math.PI * 0.495;
+
+        const cameraGlide = {
+            active: false,
+            targetPos: new THREE.Vector3(),
+            targetLook: new THREE.Vector3(),
+            lerpFactor: 0.07
+        };
+
+        // Navigation Mode State ('orbit' | 'pan' | 'walk')
+        let navMode = 'orbit';
+        let spacebarHeld = false;
+        const keyState = { w: false, a: false, s: false, d: false, up: false, down: false, left: false, right: false };
+
+        // Dedicated First-Person Free-Look Head Controller (-75° downward to +85° upward zenith)
+        const walkState = {
+            yaw: Math.PI,
+            pitch: 0.09, // radians (~ +5° eye level)
+            pos: new THREE.Vector3(0, 2.25, 22.0),
+            stepTimer: 0,
+            isDraggingLook: false,
+            prevX: 0,
+            prevY: 0
+        };
+        const MIN_WALK_PITCH = THREE.MathUtils.degToRad(-75);
+        const MAX_WALK_PITCH = THREE.MathUtils.degToRad(85);
+
+        // ============================================================================
+        // 3. PBR MATERIALS & ISOLATED X-RAY CLIPPING MANAGEMENT
+        // ============================================================================
+        const tileTex = createKawaraTileTexture();
+        const wallTex = createShikkuiWallTexture();
+        const stoneTex = createStoneGraniteTexture();
+
+        const materials = {
+            vermilionLacquer: new THREE.MeshPhysicalMaterial({
+                color: 0xb9261d,
+                roughness: 0.36,
+                metalness: 0.08,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.08,
+                clippingPlanes: [],
+                clipShadows: false
+            }),
+            shinbashiraCypress: new THREE.MeshPhysicalMaterial({
+                color: 0xc88344,
+                roughness: 0.45,
+                metalness: 0.05,
+                clearcoat: 0.35
+            }),
+            shinbashiraJoinery: new THREE.MeshPhysicalMaterial({
+                color: 0x8f241c,
+                roughness: 0.42,
+                clearcoat: 0.6
+            }),
+            darkTimber: new THREE.MeshStandardMaterial({
+                color: 0x2a1916,
+                roughness: 0.62,
+                metalness: 0.05,
+                clippingPlanes: [],
+                clipShadows: false
+            }),
+            rafterWhiteCap: new THREE.MeshBasicMaterial({
+                color: 0xf8f5ec,
+                clippingPlanes: []
+            }),
+            goldKinpaku: new THREE.MeshPhysicalMaterial({
+                color: 0xf6be44,
+                roughness: 0.2,
+                metalness: 0.92,
+                clearcoat: 0.5,
+                clippingPlanes: [],
+                clipShadows: false
+            }),
+            goldCoreUnclipped: new THREE.MeshPhysicalMaterial({
+                color: 0xf6be44,
+                roughness: 0.18,
+                metalness: 0.94,
+                clearcoat: 0.6
+            }),
+            shikkuiWall: new THREE.MeshStandardMaterial({
+                map: wallTex,
+                emissive: 0xff9d3b,
+                emissiveMap: wallTex,
+                emissiveIntensity: 0.2,
+                roughness: 0.72,
+                metalness: 0.02,
+                clippingPlanes: [],
+                clipShadows: false
+            }),
+            kawaraTile: new THREE.MeshPhysicalMaterial({
+                map: tileTex,
+                bumpMap: tileTex,
+                bumpScale: 0.06,
+                color: 0x262d36,
+                roughness: 0.42,
+                metalness: 0.26,
+                clearcoat: 0.25,
+                side: THREE.DoubleSide,
+                clippingPlanes: [],
+                clipShadows: false
+            }),
+            bronzePatina: new THREE.MeshPhysicalMaterial({
+                color: 0xb88b3c,
+                roughness: 0.28,
+                metalness: 0.86,
+                clearcoat: 0.3
+            }),
+            bonshoBronze: new THREE.MeshPhysicalMaterial({
+                color: 0x4b584e,
+                roughness: 0.32,
+                metalness: 0.82,
+                clearcoat: 0.4
+            }),
+            stoneGranite: new THREE.MeshStandardMaterial({
+                map: stoneTex,
+                bumpMap: stoneTex,
+                bumpScale: 0.04,
+                color: 0x878d96,
+                roughness: 0.8,
+                metalness: 0.05
+            }),
+            darkBasalt: new THREE.MeshStandardMaterial({
+                color: 0x23272e,
+                roughness: 0.65,
+                metalness: 0.12
+            }),
+            lanternShoji: new THREE.MeshStandardMaterial({
+                color: 0xffe4a8,
+                emissive: 0xff9829,
+                emissiveIntensity: 1.85,
+                roughness: 0.25
+            }),
+            mossVelvet: new THREE.MeshStandardMaterial({
+                color: 0x2a4024,
+                roughness: 0.92,
+                metalness: 0.0
+            }),
+            foliageCanopy: new THREE.MeshStandardMaterial({
+                color: 0xffb7c5,
+                emissive: 0x3d1423,
+                emissiveIntensity: 0.14,
+                roughness: 0.65
+            }),
+            pineFoliage: new THREE.MeshStandardMaterial({
+                color: 0x1d3824,
+                roughness: 0.78
+            }),
+            bambooGreen: new THREE.MeshPhysicalMaterial({
+                color: 0x6e8c42,
+                roughness: 0.32,
+                clearcoat: 0.65
+            }),
+            mountainSil: new THREE.MeshStandardMaterial({
+                color: 0x131726,
+                roughness: 0.95
+            }),
+            koiVertexMat: new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.25,
+                metalness: 0.08,
+                side: THREE.DoubleSide
+            })
+        };
+
+        // List of outer pagoda shell materials that get sliced ONLY when X-Ray Cutaway > 0%
+        const outerCutawayMaterials = [
+            materials.vermilionLacquer,
+            materials.darkTimber,
+            materials.rafterWhiteCap,
+            materials.goldKinpaku,
+            materials.shikkuiWall,
+            materials.kawaraTile
+        ];
+
+        const blueprintMat = new THREE.MeshBasicMaterial({
+            color: 0x38bdf8,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.52,
+            clippingPlanes: []
+        });
+
+        const clayCriticMat = new THREE.MeshStandardMaterial({
+            color: 0xdad4c8,
+            roughness: 0.56,
+            metalness: 0.04,
+            side: THREE.DoubleSide,
+            clippingPlanes: []
+        });
+
+        function applyXRayClippingState(pct) {
+            const isClipping = pct > 0;
+            const activePlanes = isClipping ? [xrayClipPlane] : [];
+            if (isClipping) {
+                xrayClipPlane.constant = 8.5 - (pct / 100) * 14.0;
+            } else {
+                xrayClipPlane.constant = 40.0;
+            }
+            outerCutawayMaterials.forEach(mat => {
+                mat.clippingPlanes = activePlanes;
+                mat.clipShadows = isClipping;
+                mat.needsUpdate = true;
+            });
+            blueprintMat.clippingPlanes = activePlanes;
+            clayCriticMat.clippingPlanes = activePlanes;
+        }
+
+        // ============================================================================
+        // 4. LIGHTING & CELESTIAL ATMOSPHERE
+        // ============================================================================
+        const ambientLight = new THREE.AmbientLight(0xffcfa8, 0.56);
+        scene.add(ambientLight);
+
+        const hemiLight = new THREE.HemisphereLight(0xffae78, 0x1e293b, 0.55);
+        scene.add(hemiLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffa654, 1.55);
+        sunLight.position.set(-40, 34, -30);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 5;
+        sunLight.shadow.camera.far = 140;
+        const shadowBound = 40;
+        sunLight.shadow.camera.left = -shadowBound;
+        sunLight.shadow.camera.right = shadowBound;
+        sunLight.shadow.camera.top = shadowBound;
+        sunLight.shadow.camera.bottom = -shadowBound;
+        sunLight.shadow.bias = -0.0004;
+        scene.add(sunLight);
+
+        const rimLight = new THREE.DirectionalLight(0x6495ed, 0.42);
+        rimLight.position.set(36, 22, 32);
+        scene.add(rimLight);
+
+        const coreInteriorLight = new THREE.PointLight(0xffaa44, 1.5, 18);
+        coreInteriorLight.position.set(0, 9.5, -6.0);
+        scene.add(coreInteriorLight);
+
+        const celestialOrb = new THREE.Mesh(
+            new THREE.SphereGeometry(5.5, 32, 32),
+            new THREE.MeshBasicMaterial({ color: 0xdf7b26, fog: false })
+        );
+        celestialOrb.position.set(-68, 26, -86);
+        scene.add(celestialOrb);
+
+        const lanternLights = [];
+
+        // ============================================================================
+        // 5. CALM, SUBTLE DARK-JADE PLANAR MIRROR POND (ZERO MATRIX CORRUPTION)
+        // ============================================================================
+        const mirrorRenderTarget = new THREE.WebGLRenderTarget(1024, 1024, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat
+        });
+        const mirrorCamera = new THREE.PerspectiveCamera();
+        const textureMatrix = new THREE.Matrix4();
+        const waterLevelClipPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.02);
+
+        const MAX_RIPPLES = 10;
+        const rippleUniformArray = [];
+        for (let i = 0; i < MAX_RIPPLES; i++) {
+            rippleUniformArray.push(new THREE.Vector4(0, 0, -10, 0));
+        }
+
+        function spawnPondRipple(x, z, amplitude = 0.65) {
+            let bestIdx = 0;
+            let maxAge = -1;
+            for (let i = 0; i < MAX_RIPPLES; i++) {
+                const r = rippleUniformArray[i];
+                if (r.z < 0 || r.z > 7.0) {
+                    bestIdx = i;
+                    break;
+                }
+                if (r.z > maxAge) {
+                    maxAge = r.z;
+                    bestIdx = i;
+                }
+            }
+            rippleUniformArray[bestIdx].set(x, z, 0.001, amplitude);
+        }
+
+        // Calm, Silky Dark-Jade Water Shader (Only 18%–24% reflection opacity over #061116)
+        const mirrorWaterShader = {
+            uniforms: {
+                tReflection: { value: mirrorRenderTarget.texture },
+                uTextureMatrix: { value: textureMatrix },
+                uTime: { value: 0 },
+                uRipples: { value: rippleUniformArray },
+                uWaterDeepColor: { value: new THREE.Color(0x061116) },
+                uWaterShallowColor: { value: new THREE.Color(0x0b1f26) },
+                uSunColor: { value: new THREE.Color(0xffa855) },
+                uSunDir: { value: new THREE.Vector3(-40, 34, -30).normalize() }
+            },
+            vertexShader: `
+                uniform mat4 uTextureMatrix;
+                uniform float uTime;
+                uniform vec4 uRipples[${MAX_RIPPLES}];
+                varying vec4 vMirrorCoord;
+                varying vec3 vWorldPos;
+                varying float vWaveHeight;
+
+                void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    float wx = worldPosition.x;
+                    float wz = worldPosition.z;
+
+                    // Very gentle, calm water breathing swell
+                    float h = sin(wx * 0.22 + uTime * 1.1) * cos(wz * 0.22 + uTime * 0.9) * 0.015;
+
+                    for (int i = 0; i < ${MAX_RIPPLES}; i++) {
+                        vec4 rip = uRipples[i];
+                        if (rip.z > 0.0 && rip.z < 7.0) {
+                            float dist = length(vec2(wx - rip.x, wz - rip.y));
+                            float radius = rip.z * 8.2;
+                            float band = abs(dist - radius);
+                            if (band < 3.6) {
+                                float fade = (1.0 - band / 3.6) * max(0.0, 1.0 - rip.z / 7.0);
+                                h += sin((dist - radius) * 2.6) * rip.w * fade * 0.06;
+                            }
+                        }
+                    }
+
+                    worldPosition.y += h;
+                    vWorldPos = worldPosition.xyz;
+                    vWaveHeight = h;
+                    vMirrorCoord = uTextureMatrix * worldPosition;
+                    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D tReflection;
+                uniform float uTime;
+                uniform vec4 uRipples[${MAX_RIPPLES}];
+                uniform vec3 uWaterDeepColor;
+                uniform vec3 uWaterShallowColor;
+                uniform vec3 uSunColor;
+                uniform vec3 uSunDir;
+
+                varying vec4 vMirrorCoord;
+                varying vec3 vWorldPos;
+                varying float vWaveHeight;
+
+                void main() {
+                    // Subtle organic surface normal perturbation
+                    float nx = cos(vWorldPos.x * 0.38 + uTime * 1.2) * 0.008;
+                    float nz = sin(vWorldPos.z * 0.38 + uTime * 1.0) * 0.008;
+
+                    float ringShimmer = 0.0;
+                    for (int i = 0; i < ${MAX_RIPPLES}; i++) {
+                        vec4 rip = uRipples[i];
+                        if (rip.z > 0.0 && rip.z < 7.0) {
+                            vec2 dir = vWorldPos.xz - rip.xy;
+                            float dist = length(dir);
+                            float radius = rip.z * 8.2;
+                            float band = abs(dist - radius);
+                            if (band < 3.6 && dist > 0.001) {
+                                float fade = (1.0 - band / 3.6) * max(0.0, 1.0 - rip.z / 7.0);
+                                float waveDeriv = cos((dist - radius) * 2.6) * rip.w * fade * 0.032;
+                                vec2 normDir = dir / dist;
+                                nx += normDir.x * waveDeriv;
+                                nz += normDir.y * waveDeriv;
+                                ringShimmer += max(0.0, sin((dist - radius) * 2.6)) * fade * rip.w * 0.045;
+                            }
+                        }
+                    }
+
+                    vec4 proj = vMirrorCoord;
+                    proj.x += nx * proj.w * 1.1;
+                    proj.z += nz * proj.w * 1.1;
+                    vec2 uv = clamp(proj.xy / max(0.001, proj.w), 0.002, 0.998);
+
+                    // Darken and tint the reflection so it reads as calm dark-jade water
+                    vec3 reflColor = texture2D(tReflection, uv).rgb * vec3(0.68, 0.78, 0.82);
+
+                    vec3 viewDir = normalize(cameraPosition - vWorldPos);
+                    vec3 normal = normalize(vec3(nx * 3.5, 1.0, nz * 3.5));
+                    float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 2.6);
+
+                    // Strictly cap reflection blend to 18% - 24% so water is never loud or overpowering
+                    float reflWeight = mix(0.18, 0.24, clamp(fresnel, 0.0, 1.0));
+
+                    vec3 baseWater = mix(uWaterDeepColor, uWaterShallowColor, clamp(vWaveHeight * 8.0 + 0.5, 0.0, 1.0));
+                    vec3 finalColor = mix(baseWater, reflColor, reflWeight);
+
+                    // Delicate specular sun glint
+                    vec3 halfVec = normalize(uSunDir + viewDir);
+                    float spec = pow(max(0.0, dot(normal, halfVec)), 140.0);
+                    finalColor += uSunColor * spec * 0.18;
+                    finalColor += uSunColor * ringShimmer;
+
+                    // Semi-transparent (0.84) so sculpted Koi fish swimming just beneath the surface are clearly visible
+                    gl_FragColor = vec4(finalColor, 0.84);
+                }
+            `
+        };
+
+        const pondGeo = new THREE.PlaneGeometry(150, 150, 100, 100);
+        pondGeo.rotateX(-Math.PI / 2);
+        const pondMat = new THREE.ShaderMaterial({
+            uniforms: mirrorWaterShader.uniforms,
+            vertexShader: mirrorWaterShader.vertexShader,
+            fragmentShader: mirrorWaterShader.fragmentShader,
+            transparent: true
+        });
+        const waterMesh = new THREE.Mesh(pondGeo, pondMat);
+        waterMesh.position.y = 0.0;
+        waterMesh.name = 'pond_water';
+        waterMesh.userData.baseMaterial = pondMat;
+        scene.add(waterMesh);
+
+        // Deep dark slate-jade pond floor (#061116)
+        const pondBedMat = new THREE.MeshBasicMaterial({ color: 0x061116 });
+        const pondBed = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), pondBedMat);
+        pondBed.rotation.x = -Math.PI / 2;
+        pondBed.position.y = -0.85;
+        pondBed.userData.baseMaterial = pondBedMat;
+        scene.add(pondBed);
+
+        /**
+         * Glitch-free Planar Reflection Pass using standard renderer.clippingPlanes
+         * (Zero oblique projectionMatrix corruption!)
+         */
+        function updateMirrorReflection() {
+            if (!waterMesh.visible || currentPipelineMode !== 'render') return;
+
+            waterMesh.visible = false;
+
+            const camPos = camera.position;
+            mirrorCamera.position.set(camPos.x, -camPos.y, camPos.z);
+
+            const lookAtPoint = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).add(camPos);
+            lookAtPoint.y = -lookAtPoint.y;
+
+            mirrorCamera.up.set(0, -1, 0);
+            mirrorCamera.lookAt(lookAtPoint);
+            mirrorCamera.fov = camera.fov;
+            mirrorCamera.aspect = camera.aspect;
+            mirrorCamera.near = camera.near;
+            mirrorCamera.far = camera.far;
+            mirrorCamera.updateProjectionMatrix();
+            mirrorCamera.updateMatrixWorld();
+
+            textureMatrix.set(
+                0.5, 0.0, 0.0, 0.5,
+                0.0, 0.5, 0.0, 0.5,
+                0.0, 0.0, 0.5, 0.5,
+                0.0, 0.0, 0.0, 1.0
+            );
+            textureMatrix.multiply(mirrorCamera.projectionMatrix);
+            textureMatrix.multiply(mirrorCamera.matrixWorldInverse);
+
+            const currentRT = renderer.getRenderTarget();
+
+            renderer.clippingPlanes = [waterLevelClipPlane];
+            renderer.setRenderTarget(mirrorRenderTarget);
+            renderer.clear();
+            renderer.render(scene, mirrorCamera);
+
+            renderer.clippingPlanes = [];
+            renderer.setRenderTarget(currentRT);
+
+            waterMesh.visible = true;
+        }
+
+        // ============================================================================
+        // 6. HIGH-DENSITY PROCEDURAL PAGODA, KUMIMONO BRACKETS & SHINBASHIRA CORE
+        // ============================================================================
+        const pagodaRootGroup = new THREE.Group();
+        scene.add(pagodaRootGroup);
+
+        const PAGODA_Z = -6.0;
+        const dnaState = {
+            tiers: 5,
+            soriCurve: 1.05,
+            cutawayPercent: 0,
+            evolutionPass: 4
+        };
+
+        function samplePagodaRoofY(tx, tz, innerHalf, outerHalf, roofHeight, cornerLift) {
+            const rSquare = Math.max(Math.abs(tx), Math.abs(tz));
+            const tSpan = Math.max(0, (rSquare * outerHalf - innerHalf * 0.65) / (outerHalf - innerHalf * 0.65));
+            const concaveY = roofHeight * Math.pow(1 - Math.min(1, tSpan), 1.55);
+            const cornerFactor = Math.pow(Math.abs(tx * tz), 1.32) * Math.pow(rSquare, 2.15);
+            return concaveY + cornerLift * cornerFactor;
+        }
+
+        function createSweptRoofBufferGeometry(innerHalf, outerHalf, roofHeight, cornerLift) {
+            const geo = new THREE.BufferGeometry();
+            const positions = [];
+            const uvs = [];
+            const indices = [];
+            const gridN = 26;
+
+            for (let iz = 0; iz <= gridN; iz++) {
+                const tz = (iz / gridN) * 2 - 1;
+                for (let ix = 0; ix <= gridN; ix++) {
+                    const tx = (ix / gridN) * 2 - 1;
+                    const x = tx * outerHalf;
+                    const z = tz * outerHalf;
+                    const y = samplePagodaRoofY(tx, tz, innerHalf, outerHalf, roofHeight, cornerLift);
+                    positions.push(x, y, z);
+                    uvs.push((tx + 1) * 0.5, (tz + 1) * 0.5);
+                }
+            }
+
+            const rowLen = gridN + 1;
+            for (let iz = 0; iz < gridN; iz++) {
+                for (let ix = 0; ix < gridN; ix++) {
+                    const a = iz * rowLen + ix;
+                    const b = a + 1;
+                    const c = (iz + 1) * rowLen + ix;
+                    const d = c + 1;
+                    indices.push(a, c, b, b, c, d);
+                }
+            }
+
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+            return geo;
+        }
+
+        function registerMeshMaterial(mesh) {
+            if (mesh && mesh.material) {
+                mesh.userData.baseMaterial = mesh.material;
+                if (currentPipelineMode === 'blueprint') {
+                    mesh.material = blueprintMat;
+                } else if (currentPipelineMode === 'clay') {
+                    mesh.material = clayCriticMat;
+                }
+            }
+            return mesh;
+        }
+
+        function addRegisteredMesh(parent, geo, mat) {
+            const m = new THREE.Mesh(geo, mat);
+            registerMeshMaterial(m);
+            parent.add(m);
+            return m;
+        }
+
+        function rebuildProceduralPagoda() {
+            while (pagodaRootGroup.children.length > 0) {
+                const child = pagodaRootGroup.children[0];
+                pagodaRootGroup.remove(child);
+                if (child.geometry) child.geometry.dispose();
+            }
+
+            const numTiers = dnaState.tiers;
+            const soriMult = dnaState.soriCurve;
+            const pass = dnaState.evolutionPass;
+
+            // 1. Stone Kidan Podium & Front Staircase
+            const lowerPodium = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(11.8, 1.1, 11.8), materials.stoneGranite);
+            lowerPodium.position.set(0, 1.15, PAGODA_Z);
+            lowerPodium.castShadow = true;
+            lowerPodium.receiveShadow = true;
+
+            const upperPodium = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(9.9, 1.0, 9.9), materials.stoneGranite);
+            upperPodium.position.set(0, 2.1, PAGODA_Z);
+            upperPodium.castShadow = true;
+            upperPodium.receiveShadow = true;
+
+            for (let s = 0; s < 6; s++) {
+                const step = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(2.7, 0.28, 0.45), materials.stoneGranite);
+                step.position.set(0, 0.75 + s * 0.32, PAGODA_Z + 6.85 - s * 0.36);
+            }
+
+            const kumimonoRedMatrices = [];
+            const kumimonoDarkMatrices = [];
+            const rafterWoodMatrices = [];
+            const rafterCapMatrices = [];
+            const kawaraTileMatrices = [];
+            const goldEndCapMatrices = [];
+            const dummy = new THREE.Object3D();
+
+            let currentY = 2.72;
+            const tierMetrics = [];
+
+            // 2. Construct Tapering Stories
+            for (let tier = 0; tier < numTiers; tier++) {
+                const taper = Math.pow(0.865, tier);
+                const coreHalf = 3.15 * taper;
+                const coreWidth = coreHalf * 2;
+                const storyHeight = (tier === 0 ? 3.2 : 2.5) * Math.pow(0.92, tier);
+                const eaveHalf = (tier === 0 ? 5.75 : 5.25) * taper;
+                const roofHeight = 1.48 * taper;
+                const cornerLift = 0.76 * taper * soriMult;
+
+                tierMetrics.push({ yBase: currentY, storyHeight, coreHalf, taper });
+
+                const isTopGold = (tier >= numTiers - 1) && pass >= 4;
+                const wallMat = pass === 1 ? materials.stoneGranite : (isTopGold ? materials.goldKinpaku : materials.shikkuiWall);
+
+                const coreBox = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(coreWidth, storyHeight, coreWidth), wallMat);
+                coreBox.position.set(0, currentY + storyHeight * 0.5, PAGODA_Z);
+                coreBox.castShadow = true;
+                coreBox.receiveShadow = true;
+
+                if (pass >= 2) {
+                    const pillarR = 0.145 * taper;
+                    const pillarGeo = new THREE.CylinderGeometry(pillarR, pillarR * 1.06, storyHeight, 12);
+                    const gridCoords = [-1, -0.333, 0.333, 1];
+
+                    gridCoords.forEach(gx => {
+                        gridCoords.forEach(gz => {
+                            if (Math.abs(gx) === 1 || Math.abs(gz) === 1) {
+                                const px = gx * (coreHalf + 0.04);
+                                const pz = PAGODA_Z + gz * (coreHalf + 0.04);
+                                const pillar = addRegisteredMesh(pagodaRootGroup, pillarGeo, materials.vermilionLacquer);
+                                pillar.position.set(px, currentY + storyHeight * 0.5, pz);
+                                pillar.castShadow = true;
+
+                                if (pass >= 3) {
+                                    const dirX = Math.abs(gx) === 1 ? Math.sign(gx) : 0;
+                                    const dirZ = Math.abs(gz) === 1 ? Math.sign(gz) : 0;
+                                    const baseBracketY = currentY + storyHeight - 0.16 * taper;
+
+                                    for (let step = 0; step < 3; step++) {
+                                        const outDist = (0.14 + step * 0.22) * taper;
+                                        const stepY = baseBracketY + step * 0.15 * taper;
+                                        const spread = (0.34 + step * 0.16) * taper;
+
+                                        dummy.position.set(px + dirX * outDist, stepY, pz + dirZ * outDist);
+                                        dummy.rotation.set(0, dirX !== 0 ? Math.PI / 2 : 0, 0);
+                                        dummy.scale.set(spread, 0.11 * taper, 0.16 * taper);
+                                        dummy.updateMatrix();
+                                        kumimonoRedMatrices.push(dummy.matrix.clone());
+
+                                        [-0.38, 0.38].forEach(mOff => {
+                                            dummy.position.set(
+                                                px + dirX * outDist + (dirZ !== 0 ? mOff * spread : 0),
+                                                stepY + 0.09 * taper,
+                                                pz + dirZ * outDist + (dirX !== 0 ? mOff * spread : 0)
+                                            );
+                                            dummy.rotation.set(0, 0, 0);
+                                            dummy.scale.set(0.14 * taper, 0.11 * taper, 0.14 * taper);
+                                            dummy.updateMatrix();
+                                            kumimonoDarkMatrices.push(dummy.matrix.clone());
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    const balcWidth = coreWidth + 1.18 * taper;
+                    const balcDeck = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(balcWidth, 0.14 * taper, balcWidth), materials.darkTimber);
+                    balcDeck.position.set(0, currentY + 0.08 * taper, PAGODA_Z);
+
+                    const railY = currentY + 0.48 * taper;
+                    const railOff = balcWidth * 0.5 - 0.06 * taper;
+                    [-1, 1].forEach(dir => {
+                        const rZ = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(balcWidth + 0.24 * taper, 0.065 * taper, 0.065 * taper), materials.vermilionLacquer);
+                        rZ.position.set(0, railY, PAGODA_Z + dir * railOff);
+
+                        const rX = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(0.065 * taper, 0.065 * taper, balcWidth + 0.24 * taper), materials.vermilionLacquer);
+                        rX.position.set(dir * railOff, railY, PAGODA_Z);
+                    });
+
+                    const roofBaseY = currentY + storyHeight - 0.04 * taper;
+                    const roofGeo = createSweptRoofBufferGeometry(coreHalf * 0.72, eaveHalf, roofHeight, cornerLift);
+                    const roofMesh = addRegisteredMesh(pagodaRootGroup, roofGeo, materials.kawaraTile);
+                    roofMesh.position.set(0, roofBaseY, PAGODA_Z);
+                    roofMesh.castShadow = true;
+                    roofMesh.receiveShadow = true;
+
+                    if (pass >= 3) {
+                        const raftersPerSide = 16;
+                        for (let side = 0; side < 4; side++) {
+                            const angle = side * (Math.PI / 2);
+                            for (let r = -raftersPerSide / 2; r <= raftersPerSide / 2; r++) {
+                                const t = r / (raftersPerSide / 2);
+                                const rafterLen = (eaveHalf - coreHalf * 0.82) * 1.1;
+                                const distMid = (coreHalf * 0.9 + eaveHalf * 0.96) * 0.5;
+                                const localX = t * (eaveHalf * 0.86);
+
+                                [0, 1].forEach(layerIdx => {
+                                    const zReach = distMid + layerIdx * 0.24 * taper;
+                                    const rx = localX * Math.cos(angle) - zReach * Math.sin(angle);
+                                    const rz = localX * Math.sin(angle) + zReach * Math.cos(angle);
+                                    const ry = roofBaseY + (0.16 - layerIdx * 0.07) * taper + Math.pow(Math.abs(t), 2.1) * cornerLift * 0.45;
+
+                                    dummy.position.set(rx, ry, PAGODA_Z + rz);
+                                    dummy.rotation.set(0.22 - layerIdx * 0.04, -angle, 0);
+                                    dummy.scale.set(0.058 * taper, 0.068 * taper, rafterLen * (layerIdx === 1 ? 0.65 : 1.0));
+                                    dummy.updateMatrix();
+                                    rafterWoodMatrices.push(dummy.matrix.clone());
+
+                                    const tipDist = zReach + (rafterLen * (layerIdx === 1 ? 0.325 : 0.5));
+                                    const capX = localX * Math.cos(angle) - tipDist * Math.sin(angle);
+                                    const capZ = localX * Math.sin(angle) + tipDist * Math.cos(angle);
+                                    dummy.position.set(capX, ry - 0.1 * taper, PAGODA_Z + capZ);
+                                    dummy.scale.set(0.062 * taper, 0.072 * taper, 0.03 * taper);
+                                    dummy.updateMatrix();
+                                    rafterCapMatrices.push(dummy.matrix.clone());
+                                });
+                            }
+
+                            const tileRows = 14;
+                            for (let tr = -tileRows / 2; tr <= tileRows / 2; tr++) {
+                                const u = (tr / (tileRows / 2)) * 0.92;
+                                const spanLen = (eaveHalf - coreHalf * 0.72) * 1.04;
+                                const midSpan = (coreHalf * 0.75 + eaveHalf * 0.98) * 0.5;
+                                const tx = u * eaveHalf * 0.9;
+                                const yMid = roofBaseY + samplePagodaRoofY(u * 0.85, 0.65, coreHalf * 0.72, eaveHalf, roofHeight, cornerLift) + 0.045 * taper;
+
+                                const wx = tx * Math.cos(angle) - midSpan * Math.sin(angle);
+                                const wz = tx * Math.sin(angle) + midSpan * Math.cos(angle);
+
+                                dummy.position.set(wx, yMid, PAGODA_Z + wz);
+                                dummy.rotation.set(0.31, -angle, 0);
+                                dummy.scale.set(0.08 * taper, 0.07 * taper, spanLen);
+                                dummy.updateMatrix();
+                                kawaraTileMatrices.push(dummy.matrix.clone());
+
+                                const eaveY = roofBaseY + samplePagodaRoofY(u * 0.9, 0.98, coreHalf * 0.72, eaveHalf, roofHeight, cornerLift) + 0.04 * taper;
+                                const ex = tx * Math.cos(angle) - (eaveHalf * 0.98) * Math.sin(angle);
+                                const ez = tx * Math.sin(angle) + (eaveHalf * 0.98) * Math.cos(angle);
+                                dummy.position.set(ex, eaveY, PAGODA_Z + ez);
+                                dummy.rotation.set(0, -angle, 0);
+                                dummy.scale.set(0.095 * taper, 0.095 * taper, 0.08 * taper);
+                                dummy.updateMatrix();
+                                goldEndCapMatrices.push(dummy.matrix.clone());
+                            }
+                        }
+
+                        [[1, 1], [-1, 1], [-1, -1], [1, -1]].forEach(([cx, cz]) => {
+                            const tipY = roofBaseY + samplePagodaRoofY(cx, cz, coreHalf * 0.72, eaveHalf, roofHeight, cornerLift);
+
+                            const oni = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(0.3 * taper, 0.38 * taper, 0.3 * taper), materials.goldKinpaku);
+                            oni.position.set(cx * eaveHalf * 0.97, tipY + 0.2 * taper, PAGODA_Z + cz * eaveHalf * 0.97);
+                            oni.rotation.y = Math.PI / 4;
+
+                            const futaku = addRegisteredMesh(pagodaRootGroup, new THREE.ConeGeometry(0.12 * taper, 0.32 * taper, 8), materials.bronzePatina);
+                            futaku.position.set(cx * eaveHalf * 0.95, tipY - 0.24 * taper, PAGODA_Z + cz * eaveHalf * 0.95);
+                        });
+                    }
+                } else {
+                    const simpleRoof = addRegisteredMesh(pagodaRootGroup, new THREE.ConeGeometry(eaveHalf * 1.25, roofHeight, 4), materials.stoneGranite);
+                    simpleRoof.position.set(0, currentY + storyHeight + roofHeight * 0.5, PAGODA_Z);
+                    simpleRoof.rotation.y = Math.PI / 4;
+                }
+
+                currentY += storyHeight + 0.5 * taper;
+            }
+
+            function buildInstancedBatch(matrixArray, geom, mat) {
+                if (matrixArray.length === 0) return;
+                const inst = new THREE.InstancedMesh(geom, mat, matrixArray.length);
+                for (let i = 0; i < matrixArray.length; i++) {
+                    inst.setMatrixAt(i, matrixArray[i]);
+                }
+                inst.instanceMatrix.needsUpdate = true;
+                inst.castShadow = true;
+                inst.receiveShadow = true;
+                registerMeshMaterial(inst);
+                pagodaRootGroup.add(inst);
+            }
+
+            buildInstancedBatch(kumimonoRedMatrices, new THREE.BoxGeometry(1, 1, 1), materials.vermilionLacquer);
+            buildInstancedBatch(kumimonoDarkMatrices, new THREE.BoxGeometry(1, 1, 1), materials.darkTimber);
+            buildInstancedBatch(rafterWoodMatrices, new THREE.BoxGeometry(1, 1, 1), materials.vermilionLacquer);
+            buildInstancedBatch(rafterCapMatrices, new THREE.BoxGeometry(1, 1, 1), materials.rafterWhiteCap);
+            buildInstancedBatch(kawaraTileMatrices, new THREE.CylinderGeometry(0.5, 0.5, 1, 8), materials.kawaraTile);
+            buildInstancedBatch(goldEndCapMatrices, new THREE.SphereGeometry(0.6, 8, 8), materials.goldKinpaku);
+
+            // Internal Shinbashira Seismic Core (Unclipped so X-Ray Cutaway reveals it intact)
+            const totalTowerHeight = currentY - 2.5 + 5.2;
+            const shinbashiraColumn = addRegisteredMesh(pagodaRootGroup, new THREE.CylinderGeometry(0.28, 0.48, totalTowerHeight, 20), materials.shinbashiraCypress);
+            shinbashiraColumn.position.set(0, 2.5 + totalTowerHeight * 0.5, PAGODA_Z);
+            shinbashiraColumn.castShadow = true;
+
+            const shinsoStone = addRegisteredMesh(pagodaRootGroup, new THREE.CylinderGeometry(0.78, 0.92, 0.65, 16), materials.darkBasalt);
+            shinsoStone.position.set(0, 2.85, PAGODA_Z);
+
+            tierMetrics.forEach((tm, idx) => {
+                const collar = addRegisteredMesh(pagodaRootGroup, new THREE.TorusGeometry(0.56 * tm.taper + 0.15, 0.08 * tm.taper, 10, 20), materials.shinbashiraJoinery);
+                collar.rotation.x = Math.PI / 2;
+                collar.position.set(0, tm.yBase + tm.storyHeight * 0.82, PAGODA_Z);
+
+                [0, Math.PI / 2].forEach(rotY => {
+                    const tieBeam = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(tm.coreHalf * 1.85, 0.18 * tm.taper, 0.18 * tm.taper), materials.shinbashiraJoinery);
+                    tieBeam.position.set(0, tm.yBase + tm.storyHeight * 0.82, PAGODA_Z);
+                    tieBeam.rotation.y = rotY;
+                });
+
+                if (idx === 0) {
+                    const altar = addRegisteredMesh(pagodaRootGroup, new THREE.CylinderGeometry(1.45, 1.65, 0.55, 8), materials.goldCoreUnclipped);
+                    altar.position.set(0, tm.yBase + 0.35, PAGODA_Z);
+                }
+            });
+
+            // Sōrin 9-Ring Bronze & Gold Finial Spire
+            const sorinY = currentY + 0.38;
+            const roban = addRegisteredMesh(pagodaRootGroup, new THREE.BoxGeometry(1.3, 0.4, 1.3), materials.bronzePatina);
+            roban.position.set(0, sorinY, PAGODA_Z);
+
+            for (let r = 0; r < 9; r++) {
+                const rScale = 1 - r * 0.045;
+                const kurin = addRegisteredMesh(pagodaRootGroup, new THREE.TorusGeometry(0.38 * rScale, 0.042, 10, 24), materials.goldCoreUnclipped);
+                kurin.rotation.x = Math.PI / 2;
+                kurin.position.set(0, sorinY + 0.95 + r * 0.28, PAGODA_Z);
+            }
+
+            for (let a = 0; a < 4; a++) {
+                const suien = addRegisteredMesh(pagodaRootGroup, new THREE.TorusKnotGeometry(0.25, 0.03, 32, 8, 2, 3), materials.goldCoreUnclipped);
+                const ang = a * (Math.PI / 2);
+                suien.position.set(Math.cos(ang) * 0.28, sorinY + 3.85, PAGODA_Z + Math.sin(ang) * 0.28);
+                suien.rotation.y = ang;
+                suien.scale.set(0.7, 1.4, 0.3);
+            }
+
+            const hoju = addRegisteredMesh(pagodaRootGroup, new THREE.SphereGeometry(0.24, 16, 16), materials.goldCoreUnclipped);
+            hoju.position.set(0, sorinY + 4.85, PAGODA_Z);
+
+            updatePolygonCounter();
+        }
+
+        function updatePolygonCounter() {
+            let tris = 0;
+            scene.traverse(obj => {
+                if (obj.isMesh && obj.visible) {
+                    const g = obj.geometry;
+                    const count = obj.isInstancedMesh ? obj.count : 1;
+                    if (g.index) tris += (g.index.count / 3) * count;
+                    else if (g.attributes.position) tris += (g.attributes.position.count / 3) * count;
+                }
+            });
+            const el = document.getElementById('dna-poly-stat');
+            if (el) el.textContent = `${Math.round(tris).toLocaleString()} TRIS`;
+        }
+
+        // ============================================================================
+        // 7. TORII GATE, SORIBASHI DRUM BRIDGE, BELL PAVILION & SHISHI-ODOSHI
+        // ============================================================================
+        const complexGroup = new THREE.Group();
+        scene.add(complexGroup);
+
+        let bonshoBellMesh = null;
+        let bellSwingPhase = 0;
+        let bellSwingAmp = 0;
+
+        let shishiTubeGroup = null;
+        let shishiState = { angle: -0.18, phase: 'filling', timer: 0 };
+
+        function buildTempleGroundsAndStructures() {
+            // 1. Central Moss Island & Foreground Courtyard Bank
+            const islandRock = addRegisteredMesh(complexGroup, new THREE.CylinderGeometry(12.2, 14.0, 1.35, 28), materials.stoneGranite);
+            islandRock.position.set(0, 0.05, -4.5);
+            islandRock.scale.set(1.18, 1, 1.06);
+            islandRock.receiveShadow = true;
+
+            const islandMoss = addRegisteredMesh(complexGroup, new THREE.CylinderGeometry(11.6, 12.2, 0.36, 28), materials.mossVelvet);
+            islandMoss.position.set(0, 0.62, -4.5);
+            islandMoss.scale.set(1.18, 1, 1.06);
+            islandMoss.receiveShadow = true;
+
+            const forecourt = addRegisteredMesh(complexGroup, new THREE.BoxGeometry(30, 1.2, 22), materials.mossVelvet);
+            forecourt.position.set(0, 0.0, 27.5);
+            forecourt.receiveShadow = true;
+
+            // 2. Parabolic Arched Soribashi Drum Bridge (Z = 5.2 to 16.8)
+            const bStart = 5.2, bEnd = 16.8, bSpan = bEnd - bStart, bWidth = 3.2, archH = 2.55;
+            const planks = 28;
+            for (let i = 0; i <= planks; i++) {
+                const t = i / planks;
+                const z = bStart + t * bSpan;
+                const norm = (t - 0.5) * 2;
+                const y = 0.65 + (1 - norm * norm) * archH;
+                const slope = Math.atan2(-2 * norm * archH, bSpan * 0.5);
+
+                const plank = addRegisteredMesh(complexGroup, new THREE.BoxGeometry(bWidth, 0.14, (bSpan / planks) * 0.94), materials.darkTimber);
+                plank.position.set(0, y, z);
+                plank.rotation.x = slope;
+                plank.castShadow = true;
+                plank.receiveShadow = true;
+
+                [-bWidth * 0.48, bWidth * 0.48].forEach(bx => {
+                    const topRail = addRegisteredMesh(complexGroup, new THREE.BoxGeometry(0.14, 0.14, (bSpan / planks) * 1.08), materials.vermilionLacquer);
+                    topRail.position.set(bx, y + 1.05, z);
+                    topRail.rotation.x = slope;
+
+                    if (i % 4 === 0) {
+                        const post = addRegisteredMesh(complexGroup, new THREE.CylinderGeometry(0.11, 0.11, 1.25, 10), materials.vermilionLacquer);
+                        post.position.set(bx, y + 0.55, z);
+
+                        const giboshi = addRegisteredMesh(complexGroup, new THREE.SphereGeometry(0.12, 10, 10), materials.goldCoreUnclipped);
+                        giboshi.position.set(bx, y + 1.26, z);
+                    }
+                });
+            }
+
+            // 3. Grand Vermilion Myōjin Torii Gate (Z = 23.5)
+            const toriiZ = 23.5, pSpan = 3.6, tHeight = 7.5;
+            [-1, 1].forEach(side => {
+                const kamebara = addRegisteredMesh(complexGroup, new THREE.CylinderGeometry(0.5, 0.6, 1.1, 16), materials.darkBasalt);
+                kamebara.position.set(side * pSpan, 0.85, toriiZ);
+
+                const hashira = addRegisteredMesh(complexGroup, new THREE.CylinderGeometry(0.33, 0.39, tHeight, 20), materials.vermilionLacquer);
+                hashira.position.set(side * (pSpan - 0.12), 0.7 + tHeight * 0.5, toriiZ);
+                hashira.rotation.z = side * 0.03;
+                hashira.castShadow = true;
+            });
+
+            const nuki = addRegisteredMesh(complexGroup, new THREE.BoxGeometry(9.8, 0.42, 0.3), materials.vermilionLacquer);
+            nuki.position.set(0, 6.4, toriiZ);
+
+            for (let s = 0; s < 22; s++) {
+                const tm = ((s + 0.5) / 22) * 2 - 1;
+                const x = tm * 5.8;
+                const curveY = Math.pow(Math.abs(tm), 2.8) * 0.72;
+                const tiltZ = Math.sign(tm) * Math.pow(Math.abs(tm), 1.8) * 0.32;
+
+                const shimaki = addRegisteredMesh(complexGroup, new THREE.BoxGeometry(0.58, 0.32, 0.5), materials.vermilionLacquer);
+                shimaki.position.set(x, 7.75 + curveY, toriiZ);
+                shimaki.rotation.z = tiltZ;
+
+                const kasagi = addRegisteredMesh(complexGroup, new THREE.BoxGeometry(0.6, 0.26, 0.64), materials.darkBasalt);
+                kasagi.position.set(x, 8.04 + curveY, toriiZ);
+                kasagi.rotation.z = tiltZ;
+            }
+
+            // 4. Interactive Bell Pavilion (Shōrō) on East Island Bank
+            const shoroGroup = new THREE.Group();
+            shoroGroup.position.set(9.2, 0.75, -1.8);
+            shoroGroup.name = 'bell_pavilion';
+
+            const shoroBase = addRegisteredMesh(shoroGroup, new THREE.BoxGeometry(4.2, 0.7, 4.2), materials.stoneGranite);
+            shoroBase.position.y = 0.35;
+
+            [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]].forEach(([px, pz]) => {
+                const col = addRegisteredMesh(shoroGroup, new THREE.CylinderGeometry(0.16, 0.18, 3.4, 12), materials.vermilionLacquer);
+                col.position.set(px, 2.35, pz);
+                col.castShadow = true;
+            });
+
+            const shoroRoof = addRegisteredMesh(shoroGroup, createSweptRoofBufferGeometry(1.1, 2.95, 1.25, 0.55), materials.kawaraTile);
+            shoroRoof.position.y = 3.9;
+            shoroRoof.castShadow = true;
+
+            bonshoBellMesh = new THREE.Group();
+            bonshoBellMesh.position.set(0, 3.65, 0);
+            const bellCylinder = addRegisteredMesh(bonshoBellMesh, new THREE.CylinderGeometry(0.52, 0.68, 1.45, 20), materials.bonshoBronze);
+            bellCylinder.position.y = -0.85;
+            bellCylinder.castShadow = true;
+            const bellCrown = addRegisteredMesh(bonshoBellMesh, new THREE.SphereGeometry(0.52, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), materials.bonshoBronze);
+            bellCrown.position.y = -0.15;
+            shoroGroup.add(bonshoBellMesh);
+
+            const shumoku = addRegisteredMesh(shoroGroup, new THREE.CylinderGeometry(0.11, 0.11, 1.6, 10), materials.shinbashiraCypress);
+            shumoku.rotation.z = Math.PI / 2;
+            shumoku.position.set(1.35, 2.75, 0);
+
+            complexGroup.add(shoroGroup);
+
+            // 5. Animated Bamboo Shishi-odoshi (Water Rocker) on West Shoreline
+            const shishiGroup = new THREE.Group();
+            shishiGroup.position.set(-4.8, 0.35, 14.2);
+            shishiGroup.name = 'shishi_odoshi';
+
+            const basinStone = addRegisteredMesh(shishiGroup, new THREE.CylinderGeometry(0.85, 1.05, 0.55, 10), materials.stoneGranite);
+            basinStone.position.y = 0.25;
+
+            const spoutPost = addRegisteredMesh(shishiGroup, new THREE.CylinderGeometry(0.08, 0.09, 1.4, 10), materials.bambooGreen);
+            spoutPost.position.set(-0.55, 0.8, 0);
+
+            const spoutArm = addRegisteredMesh(shishiGroup, new THREE.CylinderGeometry(0.05, 0.05, 0.65, 10), materials.bambooGreen);
+            spoutArm.rotation.z = Math.PI * 0.42;
+            spoutArm.position.set(-0.28, 1.35, 0);
+
+            shishiTubeGroup = new THREE.Group();
+            shishiTubeGroup.position.set(0, 0.72, 0);
+            const rockerTube = addRegisteredMesh(shishiTubeGroup, new THREE.CylinderGeometry(0.09, 0.09, 1.25, 12), materials.bambooGreen);
+            rockerTube.rotation.z = Math.PI / 2;
+            shishiGroup.add(shishiTubeGroup);
+
+            complexGroup.add(shishiGroup);
+
+            // 6. 8 Stone Lanterns (Tōrō)
+            function addStoneLantern(x, y, z) {
+                const lGroup = new THREE.Group();
+                lGroup.position.set(x, y, z);
+
+                const ped = addRegisteredMesh(lGroup, new THREE.CylinderGeometry(0.24, 0.32, 1.4, 8), materials.stoneGranite);
+                ped.position.y = 0.7;
+
+                const firebox = addRegisteredMesh(lGroup, new THREE.CylinderGeometry(0.36, 0.36, 0.55, 6), materials.lanternShoji);
+                firebox.position.y = 1.75;
+
+                const kasa = addRegisteredMesh(lGroup, new THREE.ConeGeometry(0.84, 0.48, 6), materials.stoneGranite);
+                kasa.position.y = 2.25;
+                kasa.castShadow = true;
+
+                const pt = new THREE.PointLight(0xff9933, 1.15, 13, 1.8);
+                pt.position.set(0, 1.8, 0);
+                lGroup.add(pt);
+                lanternLights.push({ light: pt, phase: Math.random() * Math.PI * 2 });
+
+                complexGroup.add(lGroup);
+            }
+
+            [
+                [-4.8, 0.55, 25.5], [4.8, 0.55, 25.5],
+                [-3.2, 0.55, 18.2], [3.2, 0.55, 18.2],
+                [-3.4, 0.65, 3.8], [3.4, 0.65, 3.8],
+                [-6.8, 0.65, -2.5], [6.8, 0.65, -2.5]
+            ].forEach(([lx, ly, lz]) => addStoneLantern(lx, ly, lz));
+
+            // 7. Gnarled Sakura & Black Pine Trees + Distant Mountain Ring
+            function addTree(x, y, z, scale, isSakura) {
+                const tGrp = new THREE.Group();
+                tGrp.position.set(x, y, z);
+                tGrp.scale.setScalar(scale);
+
+                let tx = 0, ty = 0.2, tz = 0;
+                for (let s = 0; s < 5; s++) {
+                    const seg = addRegisteredMesh(
+                        tGrp,
+                        new THREE.CylinderGeometry(0.34 - s * 0.045, 0.42 - s * 0.045, 0.95, 8),
+                        materials.darkTimber
+                    );
+                    const bx = Math.sin(s * 0.8) * 0.25;
+                    const bz = Math.cos(s * 0.7) * 0.2;
+                    seg.position.set(tx + bx * 0.5, ty + 0.47, tz + bz * 0.5);
+                    seg.rotation.z = -bx * 0.45;
+                    seg.rotation.x = bz * 0.45;
+                    seg.castShadow = true;
+                    tx += bx; ty += 0.84; tz += bz;
+                }
+
+                const mat = isSakura ? materials.foliageCanopy : materials.pineFoliage;
+                [[0, 0.5, 0, 1.9], [-1.3, 0.1, 0.6, 1.45], [1.4, 0.2, -0.5, 1.5], [0.4, 0.8, 1.1, 1.35], [-0.8, -0.2, -1.1, 1.3]].forEach(([cx, cy, cz, cr]) => {
+                    const puff = addRegisteredMesh(tGrp, new THREE.IcosahedronGeometry(cr, 1), mat);
+                    puff.position.set(tx + cx, ty + cy, tz + cz);
+                    puff.scale.set(1.25, 0.62, 1.25);
+                    puff.castShadow = true;
+                });
+
+                complexGroup.add(tGrp);
+            }
+
+            addTree(-9.8, 0.65, -7.5, 1.25, true);
+            addTree(10.5, 0.65, -8.2, 1.18, true);
+            addTree(-8.4, 0.65, 1.2, 0.95, true);
+            addTree(-8.5, 0.55, 21.5, 1.15, true);
+            addTree(8.5, 0.55, 21.5, 1.1, true);
+            addTree(-15.5, 0.0, -14.0, 1.35, false);
+            addTree(16.0, 0.0, -13.0, 1.3, false);
+
+            for (let m = 0; m < 28; m++) {
+                const ang = (m / 28) * Math.PI * 2;
+                const dist = 110 + (m % 3) * 12;
+                const mtnH = 18 + Math.sin(m * 2.3) * 8 + (m % 2) * 6;
+                const mtn = addRegisteredMesh(complexGroup, new THREE.ConeGeometry(26, mtnH, 7), materials.mountainSil);
+                mtn.position.set(Math.cos(ang) * dist, mtnH * 0.42 - 1.5, Math.sin(ang) * dist);
+                mtn.rotation.y = m;
+            }
+        }
+
+        // ============================================================================
+        // 8. ORGANIC MULTI-SEGMENT 3D KOI GEOMETRY & LIVE S-WAVE SPINE ANIMATION
+        // ============================================================================
+        const koiBoids = [];
+        const koiFoodPellets = [];
+        const foodGroup = new THREE.Group();
+        scene.add(foodGroup);
+
+        /**
+         * Builds an organic, sculpted 14-ring fusiform 3D Koi mesh with rounded snout,
+         * plump midsection, tapered tail peduncle, dorsal ridge fin, swept left/right
+         * pectoral fins, and a flowing forked butterfly tail fin + Kohaku/Taisho Sanke vertex colors.
+         */
+        function createKoiGeometry(patternType = 0) {
+            const rings = 14;
+            const radialSegs = 12;
+            const totalLen = 1.18;
+
+            // Contoured fusiform cross-section profile along the 14 spine rings (t = 0 snout -> 1 tail base)
+            const ringProfile = [
+                { t: 0.00, rx: 0.025, ry: 0.020, yOff: -0.01 }, // Rounded snout tip
+                { t: 0.05, rx: 0.095, ry: 0.075, yOff: 0.00 },
+                { t: 0.12, rx: 0.155, ry: 0.125, yOff: 0.01 },  // Head & gill cheek
+                { t: 0.22, rx: 0.205, ry: 0.165, yOff: 0.02 },  // Plump shoulder
+                { t: 0.34, rx: 0.215, ry: 0.172, yOff: 0.02 },  // Widest mid-body
+                { t: 0.46, rx: 0.190, ry: 0.155, yOff: 0.015 },
+                { t: 0.58, rx: 0.150, ry: 0.128, yOff: 0.01 },
+                { t: 0.70, rx: 0.105, ry: 0.095, yOff: 0.005 },
+                { t: 0.80, rx: 0.068, ry: 0.072, yOff: 0.00 },  // Tail peduncle
+                { t: 0.87, rx: 0.042, ry: 0.058, yOff: 0.00 },
+                { t: 0.92, rx: 0.022, ry: 0.115, yOff: 0.01 },  // Caudal tail fan start
+                { t: 0.96, rx: 0.014, ry: 0.175, yOff: 0.015 },
+                { t: 0.985, rx: 0.010, ry: 0.145, yOff: 0.01 }, // Forked butterfly tail notch
+                { t: 1.00, rx: 0.006, ry: 0.215, yOff: 0.02 }   // Flowing tail tips
+            ];
+
+            const positions = [];
+            const colors = [];
+            const indices = [];
+
+            function pushVertexColor(zNorm, x, y, isFin = false) {
+                // Base warm ivory-white Kohaku body
+                let r = 0.97, g = 0.95, b = 0.90;
+
+                if (isFin) {
+                    r = 0.98; g = 0.92; b = 0.86;
+                } else if (patternType === 0) {
+                    // Classic Kohaku: Ivory white with bold vermilion-red dorsal patches
+                    const patch1 = (zNorm > 0.08 && zNorm < 0.38 && y > -0.04);
+                    const patch2 = (zNorm > 0.52 && zNorm < 0.78 && y > -0.02);
+                    if (patch1 || patch2) {
+                        r = 0.94; g = 0.22; b = 0.08;
+                    }
+                } else if (patternType === 1) {
+                    // Taisho Sanke: Ivory white + vermilion red + sumi ink-black accents
+                    if (zNorm > 0.12 && zNorm < 0.44 && y > -0.03) {
+                        r = 0.92; g = 0.25; b = 0.09;
+                    } else if ((zNorm > 0.46 && zNorm < 0.58 && x > 0) || (zNorm > 0.68 && zNorm < 0.82 && y > 0)) {
+                        r = 0.14; g = 0.15; b = 0.18;
+                    }
+                } else if (patternType === 2) {
+                    // Yamabuki Ogon: Metallic golden-amber koi
+                    r = 0.98; g = 0.72; b = 0.14;
+                    if (y < -0.05) { r = 0.98; g = 0.86; b = 0.55; }
+                } else {
+                    // Showa Sanshoku: Crimson & gold with dark dorsal markings
+                    if (zNorm < 0.65 && y > -0.04) {
+                        r = 0.95; g = 0.36; b = 0.08;
+                    }
+                    if (zNorm > 0.32 && zNorm < 0.48 && Math.abs(x) < 0.12) {
+                        r = 0.15; g = 0.15; b = 0.18;
+                    }
+                }
+                colors.push(r, g, b);
+            }
+
+            // 1. Generate 14-ring Fusiform Body + Forked Caudal Tail
+            for (let r = 0; r < rings; r++) {
+                const prof = ringProfile[r];
+                const z = (0.45 - prof.t) * totalLen; // Snout at +Z (+0.53), tail at -Z (-0.65)
+                for (let s = 0; s <= radialSegs; s++) {
+                    const theta = (s / radialSegs) * Math.PI * 2;
+                    let x = Math.cos(theta) * prof.rx;
+                    let y = Math.sin(theta) * prof.ry + prof.yOff;
+
+                    // Create butterfly fork V-notch at the very tip of the tail
+                    let zMod = z;
+                    if (r >= rings - 2) {
+                        const forkNotch = (1.0 - Math.abs(Math.sin(theta))) * 0.085;
+                        zMod += forkNotch;
+                    }
+
+                    positions.push(x, y, zMod);
+                    pushVertexColor(prof.t, x, y, r >= rings - 3);
+                }
+            }
+
+            const ringStride = radialSegs + 1;
+            for (let r = 0; r < rings - 1; r++) {
+                for (let s = 0; s < radialSegs; s++) {
+                    const a = r * ringStride + s;
+                    const b = a + 1;
+                    const c = (r + 1) * ringStride + s;
+                    const d = c + 1;
+                    indices.push(a, c, b, b, c, d);
+                }
+            }
+
+            // 2. Add Swept Left & Right Pectoral Fins + Dorsal Fin Ridge
+            function addFinTriangle(p1, p2, p3) {
+                const baseIdx = positions.length / 3;
+                [p1, p2, p3].forEach(pt => {
+                    positions.push(pt[0], pt[1], pt[2]);
+                    pushVertexColor(0.3, pt[0], pt[1], true);
+                });
+                indices.push(baseIdx, baseIdx + 1, baseIdx + 2);
+            }
+
+            // Left & Right Pectoral Fins (Swept outward from shoulder)
+            [-1, 1].forEach(side => {
+                addFinTriangle(
+                    [side * 0.16, -0.05, 0.24],
+                    [side * 0.42, -0.09, 0.06],
+                    [side * 0.15, -0.05, -0.02]
+                );
+                // Smaller Ventral Fin
+                addFinTriangle(
+                    [side * 0.10, -0.08, -0.05],
+                    [side * 0.25, -0.11, -0.18],
+                    [side * 0.08, -0.07, -0.22]
+                );
+            });
+
+            // Dorsal Fin along the spine ridge
+            addFinTriangle(
+                [0.0, 0.16, 0.08],
+                [0.0, 0.29, -0.12],
+                [0.0, 0.11, -0.28]
+            );
+
+            const geo = new THREE.BufferGeometry();
+            const posFloat = new Float32Array(positions);
+            geo.setAttribute('position', new THREE.BufferAttribute(posFloat, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+
+            // Save rest positions so we can animate a live S-wave along the spine in animate()
+            geo.userData.restPositions = new Float32Array(positions);
+            return geo;
+        }
+
+        function initBoidsKoiAndWeatherParticles() {
+            for (let i = 0; i < 20; i++) {
+                const koiGeo = createKoiGeometry(i % 4);
+                const koiMesh = new THREE.Mesh(koiGeo, materials.koiVertexMat);
+                const scale = 0.72 + (i % 5) * 0.08;
+                koiMesh.scale.setScalar(scale);
+                registerMeshMaterial(koiMesh);
+
+                const side = i % 2 === 0 ? -1 : 1;
+                const pos = new THREE.Vector3(side * (5.5 + Math.random() * 6.5), -0.16, 8.0 + (Math.random() - 0.5) * 9.0);
+                const vel = new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2).normalize().multiplyScalar(1.65);
+
+                koiMesh.position.copy(pos);
+                scene.add(koiMesh);
+                koiBoids.push({
+                    mesh: koiMesh,
+                    pos,
+                    vel,
+                    phase: Math.random() * Math.PI * 2,
+                    swimSpeed: 7.5 + (i % 4) * 1.1
+                });
+            }
+        }
+
+        function spawnKoiFoodAt(x, z) {
+            spawnPondRipple(x, z, 0.55);
+            for (let i = 0; i < 5; i++) {
+                const pellet = addRegisteredMesh(
+                    foodGroup,
+                    new THREE.SphereGeometry(0.10, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xffd166 })
+                );
+                pellet.position.set(x + (Math.random() - 0.5) * 0.8, 0.02, z + (Math.random() - 0.5) * 0.8);
+                koiFoodPellets.push({ mesh: pellet, life: 9.0 });
+            }
+            showToast('Koi food dropped — school swimming to cursor');
+        }
+
+        // Seasonal Weather Particle System
+        let weatherParticles = null;
+        let currentSeason = 'sakura';
+        const PARTICLE_COUNT = 550;
+
+        function initWeatherParticles() {
+            const pGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(PARTICLE_COUNT * 3);
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 68;
+                positions[i * 3 + 1] = Math.random() * 32 + 0.5;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 68;
+            }
+            pGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const pMat = new THREE.PointsMaterial({
+                color: 0xffc4d6,
+                size: 0.26,
+                transparent: true,
+                opacity: 0.86
+            });
+            weatherParticles = new THREE.Points(pGeo, pMat);
+            scene.add(weatherParticles);
+        }
+
+        // ============================================================================
+        // 9. STRICT LIFECYCLE WEB AUDIO ENGINE & CONTINUOUS "TONG" BELL CADENCE
+        //    (Zero Background Music Loop + Immediate Shutdown on Tab Hide/Unload)
+        // ============================================================================
+        let audioCtx = null;
+        let masterGain = null;
+        let bellGain = null;
+        let ambienceGain = null;
+        let convolverNode = null;
+        let rainNoiseGain = null;
+
+        let audioUnlocked = false;
+        let audioMuted = false;
+        let bellCadenceSeconds = 6; // Default continuous 6s peaceful temple bell cadence
+        let bellCadenceTimer = null;
+        const activeAudioNodes = new Set();
+        const mixerLevels = { master: 0.90, bell: 0.95, ambience: 0.40 };
+
+        function createStereoReverbBuffer(ctx, duration = 3.6, decay = 2.6) {
+            const len = Math.floor(ctx.sampleRate * duration);
+            const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+            for (let ch = 0; ch < 2; ch++) {
+                const data = buf.getChannelData(ch);
+                for (let i = 0; i < len; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+                }
+            }
+            return buf;
+        }
+
+        function trackOscillatorNode(osc, gainNode) {
+            const entry = { osc, gainNode };
+            activeAudioNodes.add(entry);
+            osc.onended = () => {
+                activeAudioNodes.delete(entry);
+                try { osc.disconnect(); } catch (e) { }
+                try { if (gainNode) gainNode.disconnect(); } catch (e) { }
+            };
+        }
+
+        function stopAllActiveAudioNodesImmediately() {
+            if (bellCadenceTimer) {
+                clearInterval(bellCadenceTimer);
+                bellCadenceTimer = null;
+            }
+            activeAudioNodes.forEach(entry => {
+                try { entry.osc.stop(); } catch (e) { }
+                try { entry.osc.disconnect(); } catch (e) { }
+                try { if (entry.gainNode) entry.gainNode.disconnect(); } catch (e) { }
+            });
+            activeAudioNodes.clear();
+        }
+
+        function scheduleBellCadenceTimer() {
+            if (bellCadenceTimer) {
+                clearInterval(bellCadenceTimer);
+                bellCadenceTimer = null;
+            }
+            if (!audioUnlocked || audioMuted || document.hidden || bellCadenceSeconds <= 0) {
+                return;
+            }
+            bellCadenceTimer = setInterval(() => {
+                if (!audioUnlocked || audioMuted || document.hidden) return;
+                strikeTempleBell(false);
+            }, bellCadenceSeconds * 1000);
+        }
+
+        function unlockAndStartAudio() {
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContextClass();
+
+                const compressor = audioCtx.createDynamicsCompressor();
+                compressor.threshold.setValueAtTime(-18, audioCtx.currentTime);
+                compressor.knee.setValueAtTime(10, audioCtx.currentTime);
+                compressor.ratio.setValueAtTime(3.8, audioCtx.currentTime);
+                compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+                compressor.release.setValueAtTime(0.22, audioCtx.currentTime);
+
+                masterGain = audioCtx.createGain();
+                masterGain.gain.setValueAtTime(mixerLevels.master * 1.35, audioCtx.currentTime);
+
+                convolverNode = audioCtx.createConvolver();
+                convolverNode.buffer = createStereoReverbBuffer(audioCtx, 3.8, 2.5);
+
+                const reverbReturnGain = audioCtx.createGain();
+                reverbReturnGain.gain.value = 0.45;
+
+                bellGain = audioCtx.createGain();
+                bellGain.gain.value = mixerLevels.bell;
+
+                ambienceGain = audioCtx.createGain();
+                ambienceGain.gain.value = mixerLevels.ambience;
+
+                [bellGain, ambienceGain].forEach(ch => {
+                    ch.connect(compressor);
+                    ch.connect(convolverNode);
+                });
+                convolverNode.connect(reverbReturnGain);
+                reverbReturnGain.connect(compressor);
+                compressor.connect(masterGain);
+                masterGain.connect(audioCtx.destination);
+
+                startSubtleNatureAirBed();
+            }
+
+            if (audioCtx.state === 'suspended' && !audioMuted && !document.hidden) {
+                audioCtx.resume();
+            }
+
+            if (!audioUnlocked) {
+                audioUnlocked = true;
+                const pill = document.getElementById('audio-init-pill');
+                if (pill) {
+                    pill.style.opacity = '0';
+                    setTimeout(() => pill.remove(), 300);
+                }
+                // Strike initial welcoming Bonshō temple bell ("tong") and start the continuous 6s cadence
+                strikeTempleBell(false);
+                scheduleBellCadenceTimer();
+            }
+        }
+
+        /**
+         * Warm Multi-Partial Bonshō Bronze Temple Bell ("TONG")
+         * - Mallet strike transient (130Hz pitch drop)
+         * - Rich audible metallic partials (110Hz, 220Hz, 330Hz, 528Hz, 860Hz)
+         * - Natural 1.8Hz binaural beating (unari) & 5.5s warm resonant decay
+         */
+        function strikeTempleBell(resetTimer = true) {
+            if (!audioUnlocked) {
+                unlockAndStartAudio();
+                return;
+            }
+            if (resetTimer && bellCadenceSeconds > 0) {
+                scheduleBellCadenceTimer();
+            }
+
+            // Visual UI & 3D Bell Pavilion Swing + Gentle Pond Ripples
+            const btn = document.getElementById('dock-btn-bell');
+            if (btn) {
+                btn.classList.remove('bell-strike-anim');
+                void btn.offsetWidth;
+                btn.classList.add('bell-strike-anim');
+            }
+
+            bellSwingAmp = 0.24;
+            bellSwingPhase = 0;
+
+            spawnPondRipple(9.2, -1.8, 0.75);
+            spawnPondRipple(0.0, -4.5, 0.55);
+
+            if (!audioCtx || audioMuted || document.hidden) return;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const now = audioCtx.currentTime;
+
+            // Layer A: Wooden Shumoku Mallet Strike Transient (130Hz pitch-drop burst)
+            const impactOsc = audioCtx.createOscillator();
+            const impactGain = audioCtx.createGain();
+            impactOsc.type = 'triangle';
+            impactOsc.frequency.setValueAtTime(130.0, now);
+            impactOsc.frequency.exponentialRampToValueAtTime(52.0, now + 0.14);
+            impactGain.gain.setValueAtTime(0.75, now);
+            impactGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.16);
+            impactOsc.connect(impactGain);
+            impactGain.connect(bellGain);
+            trackOscillatorNode(impactOsc, impactGain);
+            impactOsc.start(now);
+            impactOsc.stop(now + 0.17);
+
+            // Layer B & C: Multi-Partial Bronze Harmonic Stack + 1.8Hz Unari Binaural Beating (5.5s decay)
+            const partials = [
+                { freq: 110.0, amp: 0.62, decay: 5.5, type: 'sine' },     // Fundamental hum (Atari)
+                { freq: 220.0, amp: 0.82, decay: 5.5, type: 'triangle' }, // Primary audible core ("TONG")
+                { freq: 221.8, amp: 0.56, decay: 5.3, type: 'sine' },     // 1.8Hz Unari beating twin
+                { freq: 330.0, amp: 0.60, decay: 4.6, type: 'sine' },     // Minor third / fifth resonance
+                { freq: 331.8, amp: 0.38, decay: 4.4, type: 'sine' },     // 1.8Hz mid-harmonic shimmer
+                { freq: 528.0, amp: 0.44, decay: 3.6, type: 'sine' },     // Clear bronze ring
+                { freq: 860.0, amp: 0.24, decay: 2.2, type: 'sine' }      // Upper metallic strike sheen
+            ];
+
+            partials.forEach(p => {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.type = p.type;
+                osc.frequency.setValueAtTime(p.freq, now);
+
+                g.gain.setValueAtTime(0.0001, now);
+                g.gain.linearRampToValueAtTime(p.amp * 0.44, now + 0.016);
+                g.gain.exponentialRampToValueAtTime(0.0004, now + p.decay);
+
+                osc.connect(g);
+                g.connect(bellGain);
+                trackOscillatorNode(osc, g);
+                osc.start(now);
+                osc.stop(now + p.decay + 0.05);
+            });
+        }
+
+        function triggerShishiOdoshi(manual = false) {
+            if (manual && !audioUnlocked) unlockAndStartAudio();
+            shishiState.phase = 'tipping';
+            shishiState.timer = 0;
+            spawnPondRipple(-4.8, 14.2, 0.5);
+
+            if (!audioCtx || audioMuted || document.hidden) return;
+            const now = audioCtx.currentTime;
+
+            [380, 768, 1140].forEach((freq, idx) => {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.type = idx === 0 ? 'triangle' : 'sine';
+                osc.frequency.setValueAtTime(freq * 1.04, now);
+                osc.frequency.exponentialRampToValueAtTime(freq, now + 0.03);
+
+                const amp = idx === 0 ? 0.48 : (idx === 1 ? 0.35 : 0.15);
+                g.gain.setValueAtTime(0.001, now);
+                g.gain.linearRampToValueAtTime(amp, now + 0.006);
+                g.gain.exponentialRampToValueAtTime(0.0008, now + 0.22 - idx * 0.04);
+
+                osc.connect(g);
+                g.connect(bellGain);
+                trackOscillatorNode(osc, g);
+                osc.start(now);
+                osc.stop(now + 0.25);
+            });
+        }
+
+        function playWoodFootstep() {
+            if (!audioCtx || audioMuted || document.hidden) return;
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(135, now);
+            osc.frequency.exponentialRampToValueAtTime(62, now + 0.06);
+            g.gain.setValueAtTime(0.16, now);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+            osc.connect(g);
+            g.connect(ambienceGain);
+            trackOscillatorNode(osc, g);
+            osc.start(now);
+            osc.stop(now + 0.08);
+        }
+
+        function startSubtleNatureAirBed() {
+            const bufLen = audioCtx.sampleRate * 4;
+            const noiseBuf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+            const out = noiseBuf.getChannelData(0);
+            let b0 = 0, b1 = 0, b2 = 0;
+            for (let i = 0; i < bufLen; i++) {
+                const w = Math.random() * 2 - 1;
+                b0 = 0.997 * b0 + w * 0.025;
+                b1 = 0.985 * b1 + w * 0.028;
+                b2 = 0.950 * b2 + w * 0.040;
+                out[i] = (b0 + b1 + b2) * 0.26;
+            }
+
+            const noiseSrc = audioCtx.createBufferSource();
+            noiseSrc.buffer = noiseBuf;
+            noiseSrc.loop = true;
+
+            const windFilter = audioCtx.createBiquadFilter();
+            windFilter.type = 'bandpass';
+            windFilter.frequency.value = 340;
+            windFilter.Q.value = 2.0;
+
+            const windGain = audioCtx.createGain();
+            windGain.gain.value = 0.14;
+
+            rainNoiseGain = audioCtx.createGain();
+            rainNoiseGain.gain.value = currentSeason === 'rain' ? 0.28 : 0.0;
+
+            noiseSrc.connect(windFilter);
+            windFilter.connect(windGain);
+            windGain.connect(ambienceGain);
+
+            noiseSrc.connect(rainNoiseGain);
+            rainNoiseGain.connect(ambienceGain);
+            noiseSrc.start();
+        }
+
+        function setBellCadence(seconds) {
+            unlockAndStartAudio();
+            bellCadenceSeconds = parseInt(seconds, 10);
+            [4, 6, 10, 0].forEach(s => {
+                const b = document.getElementById(`cadence-${s}`);
+                if (b) b.classList.toggle('active', s === bellCadenceSeconds);
+            });
+            const lbl = document.getElementById('lbl-bell-cadence');
+            if (lbl) {
+                lbl.textContent = bellCadenceSeconds > 0 ? `Every ${bellCadenceSeconds}s` : 'Manual Only';
+            }
+            scheduleBellCadenceTimer();
+            if (bellCadenceSeconds > 0) {
+                showToast(`Continuous Bonshō Bell ("Tong") set to every ${bellCadenceSeconds}s`);
+            } else {
+                showToast('Continuous Bell paused — click Bell icon anytime to strike');
+            }
+        }
+
+        function setMixerGain(channel, val) {
+            unlockAndStartAudio();
+            const norm = parseFloat(val) / 100;
+            mixerLevels[channel] = norm;
+            if (channel === 'master') {
+                document.getElementById('lbl-vol-master').textContent = `${val}%`;
+                if (masterGain && !audioMuted) masterGain.gain.setTargetAtTime(norm * 1.35, audioCtx.currentTime, 0.04);
+            } else if (channel === 'bell') {
+                document.getElementById('lbl-vol-bell').textContent = `${val}%`;
+                if (bellGain) bellGain.gain.setTargetAtTime(norm, audioCtx.currentTime, 0.04);
+            } else if (channel === 'ambience') {
+                document.getElementById('lbl-vol-amb').textContent = `${val}%`;
+                if (ambienceGain) ambienceGain.gain.setTargetAtTime(norm, audioCtx.currentTime, 0.04);
+            }
+        }
+
+        function toggleMasterMute() {
+            unlockAndStartAudio();
+            audioMuted = !audioMuted;
+            const btn = document.getElementById('btn-audio-mute');
+            const dockBtn = document.getElementById('dock-btn-audio');
+            if (audioMuted) {
+                stopAllActiveAudioNodesImmediately();
+                if (masterGain && audioCtx) masterGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
+                if (audioCtx && audioCtx.state === 'running') audioCtx.suspend();
+                btn.textContent = 'MUTED';
+                btn.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/40 cursor-pointer';
+                dockBtn.classList.remove('active');
+                showToast('Temple Audio Muted');
+            } else {
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                if (masterGain && audioCtx) masterGain.gain.setTargetAtTime(mixerLevels.master * 1.35, audioCtx.currentTime, 0.04);
+                scheduleBellCadenceTimer();
+                strikeTempleBell(false);
+                btn.textContent = 'ACTIVE';
+                btn.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-pointer';
+                dockBtn.classList.add('active');
+                showToast('Temple Audio Active');
+            }
+        }
+
+        // Strict Lifecycle Cleanup: Never allow sound to play after closing, unloading, or hiding tab
+        function handlePageLifecycleShutdown() {
+            stopAllActiveAudioNodesImmediately();
+            if (audioCtx) {
+                try { audioCtx.suspend(); } catch (e) { }
+                try { audioCtx.close(); } catch (e) { }
+            }
+        }
+        window.addEventListener('pagehide', handlePageLifecycleShutdown);
+        window.addEventListener('beforeunload', handlePageLifecycleShutdown);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopAllActiveAudioNodesImmediately();
+                if (audioCtx && audioCtx.state === 'running') {
+                    try { audioCtx.suspend(); } catch (e) { }
+                }
+            } else if (audioUnlocked && !audioMuted && audioCtx) {
+                try { audioCtx.resume(); } catch (e) { }
+                scheduleBellCadenceTimer();
+            }
+        });
+
+        // ============================================================================
+        // 10. BULLETPROOF DOCK & POPOVER UI + WALK MODE (+85° UPWARD HEAD ROTATION)
+        // ============================================================================
+        let activePopoverId = null;
+        let idleFadeTimeout = null;
+        let zenModeActive = false;
+
+        const dockWrapper = document.getElementById('spatial-dock-wrapper');
+        const spatialDock = document.getElementById('spatial-dock');
+        const dockTooltip = document.getElementById('dock-tooltip');
+
+        // Stop all event propagation on the dock and popovers so clicking them NEVER triggers canvas close
+        ['pointerdown', 'mousedown', 'click', 'dblclick'].forEach(evtName => {
+            spatialDock.addEventListener(evtName, (e) => e.stopPropagation());
+            document.querySelectorAll('.micro-popover').forEach(pop => {
+                pop.addEventListener(evtName, (e) => e.stopPropagation());
+            });
+            document.getElementById('top-pill-container').addEventListener(evtName, (e) => e.stopPropagation());
+        });
+
+        function showDockTooltip(text) {
+            if (!dockTooltip || activePopoverId) return;
+            dockTooltip.textContent = text;
+            dockTooltip.classList.add('visible');
+        }
+
+        function hideDockTooltip() {
+            if (dockTooltip) dockTooltip.classList.remove('visible');
+        }
+
+        function showToast(msg, duration = 2000) {
+            const toast = document.getElementById('studio-toast');
+            if (!toast) return;
+            toast.textContent = msg;
+            toast.classList.remove('opacity-0', '-translate-y-2');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            clearTimeout(toast.hideTimer);
+            toast.hideTimer = setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-2');
+                toast.classList.remove('opacity-100', 'translate-y-0');
+            }, duration);
+        }
+
+        function closeAllPopovers() {
+            document.querySelectorAll('.micro-popover').forEach(p => p.classList.remove('open'));
+            ['dock-btn-views', 'dock-btn-atmos', 'dock-btn-dna'].forEach(id => {
+                const b = document.getElementById(id);
+                if (b) b.classList.remove('active-cyan');
+            });
+            activePopoverId = null;
+        }
+
+        function togglePopover(popoverId, btnEl) {
+            hideDockTooltip();
+            if (activePopoverId === popoverId) {
+                closeAllPopovers();
+                return;
+            }
+            closeAllPopovers();
+            const pop = document.getElementById(popoverId);
+            if (pop) {
+                pop.classList.add('open');
+                activePopoverId = popoverId;
+                if (btnEl && btnEl.id !== 'dock-btn-audio') {
+                    btnEl.classList.add('active-cyan');
+                }
+            }
+        }
+
+        function resetIdleDockTimer() {
+            dockWrapper.classList.remove('dock-idle');
+            clearTimeout(idleFadeTimeout);
+            idleFadeTimeout = setTimeout(() => {
+                if (!activePopoverId) {
+                    dockWrapper.classList.add('dock-idle');
+                }
+            }, 4000);
+        }
+        window.addEventListener('pointermove', resetIdleDockTimer);
+        resetIdleDockTimer();
+
+        // Continuous Terrain Height Function for Smooth First-Person Strolling
+        function getGroundHeight(x, z) {
+            // Parabolic Soribashi Bridge Deck (Z = 5.2 to 16.8)
+            if (Math.abs(x) < 2.35 && z >= 5.2 && z <= 16.8) {
+                const t = (z - 5.2) / (16.8 - 5.2);
+                const norm = (t - 0.5) * 2;
+                return 0.65 + (1 - norm * norm) * 2.55;
+            }
+            // Pagoda Stone Podium Steps & Veranda
+            if (Math.abs(x) < 6.2 && z <= 1.0 && z >= -12.0) {
+                if (Math.abs(x) < 5.2 && Math.abs(z - PAGODA_Z) < 5.2) {
+                    return 2.62;
+                }
+                return 1.65;
+            }
+            // Temple Island Plaza
+            if (z < 5.2 && Math.hypot(x, z + 4.5) < 14.2) {
+                return 0.78;
+            }
+            return 0.62;
+        }
+
+        function updateWalkPitchReadout() {
+            const deg = Math.round(THREE.MathUtils.radToDeg(walkState.pitch));
+            const sign = deg >= 0 ? '+' : '';
+            const el = document.getElementById('walk-pitch-readout');
+            if (el) el.textContent = `Pitch: ${sign}${deg}°`;
+        }
+
+        function resetWalkEyeLevel() {
+            walkState.pitch = THREE.MathUtils.degToRad(6);
+            updateWalkPitchReadout();
+            showToast('Eye level reset to horizon (+6°)');
+        }
+
+        function setNavMode(mode) {
+            navMode = mode;
+            cameraGlide.active = false;
+            closeAllPopovers();
+
+            document.getElementById('dock-btn-orbit').classList.toggle('active', mode === 'orbit');
+            document.getElementById('dock-btn-pan').classList.toggle('active', mode === 'pan');
+            document.getElementById('dock-btn-walk').classList.toggle('active', mode === 'walk');
+
+            const walkHud = document.getElementById('walk-hud-pill');
+            container.classList.remove('cursor-orbit', 'cursor-pan', 'cursor-walk');
+
+            if (mode === 'orbit') {
+                walkHud.classList.add('hidden');
+                walkHud.classList.remove('flex');
+                controls.enabled = true;
+                controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+                container.classList.add('cursor-orbit');
+                showToast('Orbit Mode — Left-drag to rotate, Right-drag or Spacebar to drag');
+            } else if (mode === 'pan') {
+                walkHud.classList.add('hidden');
+                walkHud.classList.remove('flex');
+                controls.enabled = true;
+                controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+                container.classList.add('cursor-pan');
+                showToast('Free Drag Mode — Left-click & drag anywhere to pan smoothly');
+            } else if (mode === 'walk') {
+                // Disable OrbitControls completely so it never fights +85° head pitch
+                controls.autoRotate = false;
+                document.getElementById('dock-btn-360').classList.remove('active-cyan');
+                controls.enabled = false;
+                container.classList.add('cursor-walk');
+
+                walkState.pos.set(0, getGroundHeight(0, 19.5) + 1.65, 19.5);
+                walkState.yaw = Math.PI; // Facing North toward bridge & pagoda
+                walkState.pitch = THREE.MathUtils.degToRad(14); // Looking slightly up at pagoda
+                updateWalkPitchReadout();
+
+                walkHud.classList.remove('hidden');
+                walkHud.classList.add('flex');
+                showToast('Walk Mode — Drag up/down to tilt head up to +85° under the eaves');
+            }
+        }
+
+        // Strict Canvas-Only Pointer Listeners (Only close popovers when clicking renderer.domElement)
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            if (activePopoverId) {
+                closeAllPopovers();
+            }
+            if (!audioUnlocked) {
+                unlockAndStartAudio();
+            }
+            dockWrapper.classList.add('dock-dragging');
+            cameraGlide.active = false;
+
+            if (navMode === 'walk') {
+                walkState.isDraggingLook = true;
+                walkState.prevX = e.clientX;
+                walkState.prevY = e.clientY;
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (navMode === 'walk' && walkState.isDraggingLook) {
+                const dx = e.clientX - walkState.prevX;
+                const dy = e.clientY - walkState.prevY;
+                walkState.prevX = e.clientX;
+                walkState.prevY = e.clientY;
+
+                // 360° horizontal head rotation + full -75° to +85° vertical head pitch
+                walkState.yaw -= dx * 0.0048;
+                walkState.pitch = THREE.MathUtils.clamp(
+                    walkState.pitch - dy * 0.0048,
+                    MIN_WALK_PITCH,
+                    MAX_WALK_PITCH
+                );
+                updateWalkPitchReadout();
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            dockWrapper.classList.remove('dock-dragging');
+            walkState.isDraggingLook = false;
+        });
+
+        // Double-Click Raycast Focus, Koi Feeding & Bell Strike
+        const raycaster = new THREE.Raycaster();
+        const mouseNDC = new THREE.Vector2();
+
+        renderer.domElement.addEventListener('dblclick', (e) => {
+            mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouseNDC, camera);
+
+            const hits = raycaster.intersectObjects(scene.children, true);
+            if (hits.length === 0) return;
+
+            const hit = hits[0];
+            let obj = hit.object;
+            while (obj.parent && obj.parent !== scene && !obj.name) {
+                obj = obj.parent;
+            }
+
+            if (hit.object === waterMesh || obj.name === 'pond_water') {
+                spawnKoiFoodAt(hit.point.x, hit.point.z);
+                return;
+            }
+            if (obj.name === 'bell_pavilion') {
+                strikeTempleBell(true);
+                return;
+            }
+            if (obj.name === 'shishi_odoshi') {
+                triggerShishiOdoshi(true);
+                return;
+            }
+
+            if (navMode !== 'walk') {
+                const offsetDir = camera.position.clone().sub(controls.target).normalize();
+                const newDist = Math.max(7, Math.min(28, camera.position.distanceTo(hit.point) * 0.68));
+                cameraGlide.targetLook.copy(hit.point);
+                cameraGlide.targetPos.copy(hit.point).addScaledVector(offsetDir, newDist);
+                cameraGlide.active = true;
+                showToast('Gliding camera focus to selection');
+            }
+        });
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (!audioUnlocked && e.code === 'Space') {
+                unlockAndStartAudio();
+            }
+            if (e.code === 'KeyH' || e.code === 'Tab') {
+                e.preventDefault();
+                zenModeActive = !zenModeActive;
+                closeAllPopovers();
+                dockWrapper.classList.toggle('dock-zen', zenModeActive);
+                showToast(zenModeActive ? 'Zen Mode — Press H or Tab to restore UI' : 'Studio HUD Restored');
+            } else if (e.code === 'KeyB') {
+                strikeTempleBell(true);
+            } else if (e.code === 'Space' && !spacebarHeld && navMode === 'orbit') {
+                spacebarHeld = true;
+                controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
+                container.classList.remove('cursor-orbit');
+                container.classList.add('cursor-pan');
+            }
+
+            if (e.code === 'KeyW') keyState.w = true;
+            if (e.code === 'KeyS') keyState.s = true;
+            if (e.code === 'KeyA') keyState.a = true;
+            if (e.code === 'KeyD') keyState.d = true;
+            if (e.code === 'ArrowUp') keyState.up = true;
+            if (e.code === 'ArrowDown') keyState.down = true;
+            if (e.code === 'ArrowLeft') keyState.left = true;
+            if (e.code === 'ArrowRight') keyState.right = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && spacebarHeld) {
+                spacebarHeld = false;
+                if (navMode === 'orbit') {
+                    controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+                    container.classList.remove('cursor-pan');
+                    container.classList.add('cursor-orbit');
+                }
+            }
+            if (e.code === 'KeyW') keyState.w = false;
+            if (e.code === 'KeyS') keyState.s = false;
+            if (e.code === 'KeyA') keyState.a = false;
+            if (e.code === 'KeyD') keyState.d = false;
+            if (e.code === 'ArrowUp') keyState.up = false;
+            if (e.code === 'ArrowDown') keyState.down = false;
+            if (e.code === 'ArrowLeft') keyState.left = false;
+            if (e.code === 'ArrowRight') keyState.right = false;
+        });
+
+        // ============================================================================
+        // 11. CAMERA PRESETS, ATMOSPHERE, SEASONS, DNA LAB & LOSSLESS MODE CYCLING
+        // ============================================================================
+        const cameraPresets = {
+            1: { pos: new THREE.Vector3(21, 9.5, 34), look: new THREE.Vector3(0, 10.2, -3.0) },
+            2: { pos: new THREE.Vector3(-38, 28, 42), look: new THREE.Vector3(0, 7.5, 4.0) },
+            3: { pos: new THREE.Vector3(8.5, 15.8, 3.2), look: new THREE.Vector3(0, 16.5, -6.0) },
+            4: { pos: new THREE.Vector3(0, 3.8, 34.5), look: new THREE.Vector3(0, 7.2, 2.0) }
+        };
+
+        function setCameraPreset(id) {
+            if (navMode === 'walk') setNavMode('orbit');
+            const p = cameraPresets[id];
+            if (!p) return;
+            [1, 2, 3, 4].forEach(k => {
+                const btn = document.getElementById(`cam-preset-${k}`);
+                if (btn) btn.classList.toggle('active', k === id);
+            });
+            cameraGlide.targetPos.copy(p.pos);
+            cameraGlide.targetLook.copy(p.look);
+            cameraGlide.active = true;
+        }
+
+        function recenterCamera() {
+            setCameraPreset(1);
+            showToast('Camera recentered to Hero View');
+        }
+
+        function toggleAutoOrbit() {
+            if (navMode === 'walk') setNavMode('orbit');
+            controls.autoRotate = !controls.autoRotate;
+            controls.autoRotateSpeed = 1.15;
+            const btn360 = document.getElementById('dock-btn-360');
+            if (btn360) btn360.classList.toggle('active-cyan', controls.autoRotate);
+            showToast(controls.autoRotate ? '360° Cinematic Auto-Orbit Active' : '360° Auto-Orbit Paused');
+        }
+
+        let currentTimeOfDay = 'dusk';
+        function setTimeOfDay(tod) {
+            currentTimeOfDay = tod;
+            ['dusk', 'night', 'dawn'].forEach(t => {
+                const btn = document.getElementById(`tod-${t}`);
+                if (btn) btn.classList.toggle('active', t === tod);
+            });
+            if (currentPipelineMode !== 'render') return;
+
+            if (tod === 'dusk') {
+                scene.background.setHex(0x141322);
+                scene.fog.color.setHex(0x1f172a);
+                ambientLight.color.setHex(0xffcfa8);
+                ambientLight.intensity = 0.56;
+                sunLight.color.setHex(0xffa24a);
+                sunLight.intensity = 1.55;
+                celestialOrb.material.color.setHex(0xdf7b26);
+                celestialOrb.position.set(-68, 25, -86);
+                mirrorWaterShader.uniforms.uSunColor.value.setHex(0xffa855);
+                materials.lanternShoji.emissiveIntensity = 1.85;
+            } else if (tod === 'night') {
+                scene.background.setHex(0x050811);
+                scene.fog.color.setHex(0x070c18);
+                ambientLight.color.setHex(0x3b5284);
+                ambientLight.intensity = 0.36;
+                sunLight.color.setHex(0x7aa2f7);
+                sunLight.intensity = 0.78;
+                celestialOrb.material.color.setHex(0xcbd5e1);
+                celestialOrb.position.set(55, 38, -82);
+                mirrorWaterShader.uniforms.uSunColor.value.setHex(0x93c5fd);
+                materials.lanternShoji.emissiveIntensity = 2.6;
+            } else if (tod === 'dawn') {
+                scene.background.setHex(0x243040);
+                scene.fog.color.setHex(0x3e4959);
+                ambientLight.color.setHex(0xd8e2f2);
+                ambientLight.intensity = 0.76;
+                sunLight.color.setHex(0xffd1b3);
+                sunLight.intensity = 1.25;
+                celestialOrb.material.color.setHex(0xf5d0b5);
+                celestialOrb.position.set(-55, 19, -82);
+                mirrorWaterShader.uniforms.uSunColor.value.setHex(0xffd1b3);
+                materials.lanternShoji.emissiveIntensity = 0.95;
+            }
+        }
+
+        function setSeason(season) {
+            currentSeason = season;
+            ['sakura', 'rain', 'momiji', 'snow'].forEach(s => {
+                const btn = document.getElementById(`season-${s}`);
+                if (btn) btn.classList.toggle('active', s === season);
+            });
+
+            if (rainNoiseGain && audioCtx) {
+                rainNoiseGain.gain.setTargetAtTime(season === 'rain' ? 0.28 : 0.0, audioCtx.currentTime, 0.25);
+            }
+
+            if (season === 'sakura') {
+                materials.foliageCanopy.color.setHex(0xffb7c5);
+                materials.mossVelvet.color.setHex(0x2a4024);
+                materials.kawaraTile.color.setHex(0x262d36);
+                materials.kawaraTile.roughness = 0.42;
+                weatherParticles.material.color.setHex(0xffc4d6);
+                weatherParticles.material.size = 0.26;
+                showToast('Spring Sakura — Drifting cherry blossoms');
+            } else if (season === 'rain') {
+                materials.foliageCanopy.color.setHex(0x2d5a3c);
+                materials.mossVelvet.color.setHex(0x1f361d);
+                materials.kawaraTile.color.setHex(0x181e26);
+                materials.kawaraTile.roughness = 0.14;
+                weatherParticles.material.color.setHex(0x93c5fd);
+                weatherParticles.material.size = 0.18;
+                showToast('Summer Monsoon Rain — Wet tiles & pond ripples');
+            } else if (season === 'momiji') {
+                materials.foliageCanopy.color.setHex(0xd9381e);
+                materials.mossVelvet.color.setHex(0x3d4222);
+                materials.kawaraTile.color.setHex(0x262d36);
+                materials.kawaraTile.roughness = 0.42;
+                weatherParticles.material.color.setHex(0xf97316);
+                weatherParticles.material.size = 0.30;
+                showToast('Autumn Momiji — Crimson maple foliage');
+            } else if (season === 'snow') {
+                materials.foliageCanopy.color.setHex(0xf1f5f9);
+                materials.mossVelvet.color.setHex(0xe2e8f0);
+                materials.kawaraTile.color.setHex(0xdbeafe);
+                materials.kawaraTile.roughness = 0.75;
+                weatherParticles.material.color.setHex(0xffffff);
+                weatherParticles.material.size = 0.28;
+                showToast('Winter Yukimi — Snow-dusted temple roofs');
+            }
+        }
+
+        // Lossless Pipeline Mode Switcher using mesh.userData.baseMaterial
+        let currentPipelineMode = 'render';
+        function cycleRenderPipelineMode() {
+            const order = ['render', 'blueprint', 'clay'];
+            const nextIdx = (order.indexOf(currentPipelineMode) + 1) % order.length;
+            currentPipelineMode = order[nextIdx];
+
+            const bpOverlay = document.getElementById('blueprint-overlay');
+            const btn = document.getElementById('dock-btn-mode');
+            btn.classList.remove('active', 'active-cyan');
+
+            if (currentPipelineMode === 'blueprint') {
+                bpOverlay.classList.add('active');
+                btn.classList.add('active-cyan');
+                scene.background.setHex(0x061326);
+                scene.fog.color.setHex(0x061326);
+                scene.traverse(obj => {
+                    if (obj.isMesh && obj.userData.baseMaterial) {
+                        obj.material = blueprintMat;
+                    }
+                });
+                showToast('Pipeline Stage 01: Architectural Blueprint Wireframe');
+            } else if (currentPipelineMode === 'clay') {
+                bpOverlay.classList.remove('active');
+                btn.classList.add('active');
+                scene.background.setHex(0x1f2126);
+                scene.fog.color.setHex(0x1f2126);
+                scene.traverse(obj => {
+                    if (obj.isMesh && obj.userData.baseMaterial) {
+                        obj.material = clayCriticMat;
+                    }
+                });
+                showToast('Pipeline Stage 03: Studio Clay Surface Critic');
+            } else {
+                bpOverlay.classList.remove('active');
+                scene.traverse(obj => {
+                    if (obj.isMesh && obj.userData.baseMaterial) {
+                        obj.material = obj.userData.baseMaterial;
+                    }
+                });
+                setTimeOfDay(currentTimeOfDay);
+                showToast('Pipeline Stage 04: Full PBR & Calm Dark-Jade Pond');
+            }
+        }
+
+        function setPagodaTiers(tiers) {
+            dnaState.tiers = parseInt(tiers, 10);
+            [3, 5, 7].forEach(t => {
+                const btn = document.getElementById(`dna-tier-${t}`);
+                if (btn) btn.classList.toggle('active', t === dnaState.tiers);
+            });
+            const names = { 3: '3 Tiers (Sanjū)', 5: '5 Tiers (Gojū)', 7: '7 Tiers (Nanajū)' };
+            document.getElementById('label-stories').textContent = names[dnaState.tiers];
+            rebuildProceduralPagoda();
+        }
+
+        function updateRoofSori(val) {
+            dnaState.soriCurve = parseFloat(val);
+            document.getElementById('label-sori').textContent = `${dnaState.soriCurve.toFixed(2)}x`;
+            rebuildProceduralPagoda();
+        }
+
+        function updateXRayCutaway(val) {
+            const pct = parseFloat(val);
+            dnaState.cutawayPercent = pct;
+            document.getElementById('label-cutaway').textContent = `${pct}%`;
+            applyXRayClippingState(pct);
+        }
+
+        function setEvolutionPass(pass) {
+            dnaState.evolutionPass = parseInt(pass, 10);
+            [1, 2, 3, 4].forEach(p => {
+                const btn = document.getElementById(`pass-btn-${p}`);
+                if (btn) btn.classList.toggle('active', p === dnaState.evolutionPass);
+            });
+            const labels = {
+                1: 'PASS 1: MASSING BLOCKOUT',
+                2: 'PASS 2: TIMBER FRAME',
+                3: 'PASS 3: KUMIMONO & TILES',
+                4: 'PASS 4: FINAL PBR'
+            };
+            document.getElementById('label-pass').textContent = labels[dnaState.evolutionPass];
+            rebuildProceduralPagoda();
+        }
+
+        function exportSceneToGLB() {
+            showToast('Serializing 3D Temple Complex to .GLB for Blender...');
+            const exporter = new THREE.GLTFExporter();
+            exporter.parse(
+                scene,
+                (result) => {
+                    const blob = new Blob([result], { type: 'application/octet-stream' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `kinkakuji_pagoda_${dnaState.tiers}tier.glb`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showToast('Export complete — .GLB downloaded');
+                },
+                { binary: true }
+            );
+        }
+
+        // Bind All Dock Buttons & Popover Controls Cleanly via AddEventListener
+        function bindAllUIControls() {
+            // Hover tooltips on all dock buttons
+            document.querySelectorAll('.dock-icon-btn').forEach(btn => {
+                btn.addEventListener('mouseenter', () => {
+                    const tip = btn.getAttribute('data-tooltip');
+                    if (tip) showDockTooltip(tip);
+                });
+                btn.addEventListener('mouseleave', hideDockTooltip);
+            });
+
+            // Main Dock Actions
+            document.getElementById('dock-btn-orbit').addEventListener('click', () => setNavMode('orbit'));
+            document.getElementById('dock-btn-pan').addEventListener('click', () => setNavMode('pan'));
+            document.getElementById('dock-btn-walk').addEventListener('click', () => setNavMode('walk'));
+            document.getElementById('dock-btn-360').addEventListener('click', toggleAutoOrbit);
+            document.getElementById('dock-btn-views').addEventListener('click', function () { togglePopover('popover-views', this); });
+            document.getElementById('dock-btn-atmos').addEventListener('click', function () { togglePopover('popover-atmos', this); });
+            document.getElementById('dock-btn-dna').addEventListener('click', function () { togglePopover('popover-dna', this); });
+            document.getElementById('dock-btn-mode').addEventListener('click', cycleRenderPipelineMode);
+            document.getElementById('dock-btn-bell').addEventListener('click', () => strikeTempleBell(true));
+            document.getElementById('dock-btn-audio').addEventListener('click', function () { togglePopover('popover-audio', this); });
+            document.getElementById('dock-btn-export').addEventListener('click', exportSceneToGLB);
+
+            // Top Pill Prompts & Walk Mode HUD Controls
+            const initPill = document.getElementById('audio-init-pill');
+            if (initPill) initPill.addEventListener('click', unlockAndStartAudio);
+
+            document.getElementById('btn-walk-reset-eye').addEventListener('click', resetWalkEyeLevel);
+            document.getElementById('btn-walk-look-up').addEventListener('click', () => {
+                walkState.pitch = THREE.MathUtils.degToRad(68);
+                updateWalkPitchReadout();
+                showToast('Looking up (+68°) into overhanging Kumimono eaves');
+            });
+
+            // Views Popover Buttons
+            document.querySelectorAll('[data-preset]').forEach(btn => {
+                btn.addEventListener('click', () => setCameraPreset(parseInt(btn.getAttribute('data-preset'), 10)));
+            });
+            document.getElementById('btn-recenter-view').addEventListener('click', recenterCamera);
+
+            // Atmosphere Popover Buttons
+            document.querySelectorAll('[data-tod]').forEach(btn => {
+                btn.addEventListener('click', () => setTimeOfDay(btn.getAttribute('data-tod')));
+            });
+            document.querySelectorAll('[data-season]').forEach(btn => {
+                btn.addEventListener('click', () => setSeason(btn.getAttribute('data-season')));
+            });
+
+            // DNA Lab Popover Controls
+            document.querySelectorAll('[data-tiers]').forEach(btn => {
+                btn.addEventListener('click', () => setPagodaTiers(btn.getAttribute('data-tiers')));
+            });
+            document.getElementById('slider-sori').addEventListener('input', function () { updateRoofSori(this.value); });
+            document.getElementById('slider-cutaway').addEventListener('input', function () { updateXRayCutaway(this.value); });
+            document.querySelectorAll('[data-pass]').forEach(btn => {
+                btn.addEventListener('click', () => setEvolutionPass(btn.getAttribute('data-pass')));
+            });
+
+            // Audio Popover Controls
+            document.getElementById('btn-audio-mute').addEventListener('click', toggleMasterMute);
+            document.querySelectorAll('[data-cadence]').forEach(btn => {
+                btn.addEventListener('click', () => setBellCadence(btn.getAttribute('data-cadence')));
+            });
+            document.getElementById('slider-vol-master').addEventListener('input', function () { setMixerGain('master', this.value); });
+            document.getElementById('slider-vol-bell').addEventListener('input', function () { setMixerGain('bell', this.value); });
+            document.getElementById('slider-vol-amb').addEventListener('input', function () { setMixerGain('ambience', this.value); });
+            document.getElementById('btn-trigger-shishi').addEventListener('click', () => triggerShishiOdoshi(true));
+        }
+
+        // Initialize Scene Geometry, Koi, Particles & UI
+        buildTempleGroundsAndStructures();
+        rebuildProceduralPagoda();
+        initBoidsKoiAndWeatherParticles();
+        initWeatherParticles();
+        bindAllUIControls();
+
+        // ============================================================================
+        // 12. REAL-TIME 60 FPS ANIMATION, S-WAVE KOI SPINE & RENDERING LOOP
+        // ============================================================================
+        const clock = new THREE.Clock();
+        let rainSplashTimer = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min(clock.getDelta(), 0.1);
+            const elapsed = clock.getElapsedTime();
+
+            // 1. Navigation & Camera Updates (Orbit / Free Drag / Walk Grounds with +85° Pitch)
+            const moveForward = (keyState.w || keyState.up ? 1 : 0) - (keyState.s || keyState.down ? 1 : 0);
+            const moveRight = (keyState.d || keyState.right ? 1 : 0) - (keyState.a || keyState.left ? 1 : 0);
+
+            if (navMode === 'walk') {
+                if (moveForward !== 0 || moveRight !== 0) {
+                    const speed = 5.6 * dt;
+                    const fwdX = Math.sin(walkState.yaw);
+                    const fwdZ = Math.cos(walkState.yaw);
+                    const rightX = -fwdZ;
+                    const rightZ = fwdX;
+
+                    walkState.pos.x += (fwdX * moveForward + rightX * moveRight) * speed;
+                    walkState.pos.z += (fwdZ * moveForward + rightZ * moveRight) * speed;
+                    walkState.stepTimer += dt * 7.5;
+                    if (walkState.stepTimer > Math.PI) {
+                        walkState.stepTimer -= Math.PI;
+                        playWoodFootstep();
+                    }
+                }
+                const groundY = getGroundHeight(walkState.pos.x, walkState.pos.z);
+                const headBob = (moveForward !== 0 || moveRight !== 0) ? Math.sin(walkState.stepTimer * 2) * 0.05 : 0;
+                camera.position.set(walkState.pos.x, groundY + 1.65 + headBob, walkState.pos.z);
+
+                // Compute 3D look target supporting full -75° to +85° vertical pitch
+                const cosPitch = Math.cos(walkState.pitch);
+                const lookTarget = new THREE.Vector3(
+                    camera.position.x + Math.sin(walkState.yaw) * cosPitch,
+                    camera.position.y + Math.sin(walkState.pitch),
+                    camera.position.z + Math.cos(walkState.yaw) * cosPitch
+                );
+                camera.up.set(0, 1, 0);
+                camera.lookAt(lookTarget);
+            } else {
+                if (moveForward !== 0 || moveRight !== 0) {
+                    cameraGlide.active = false;
+                    const panStep = 14.5 * dt;
+                    const fwd = new THREE.Vector3();
+                    camera.getWorldDirection(fwd);
+                    fwd.y = 0;
+                    fwd.normalize();
+                    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+                    const delta = new THREE.Vector3()
+                        .addScaledVector(fwd, moveForward * panStep)
+                        .addScaledVector(right, moveRight * panStep);
+                    camera.position.add(delta);
+                    controls.target.add(delta);
+                }
+
+                if (cameraGlide.active) {
+                    camera.position.lerp(cameraGlide.targetPos, cameraGlide.lerpFactor);
+                    controls.target.lerp(cameraGlide.targetLook, cameraGlide.lerpFactor);
+                    if (camera.position.distanceTo(cameraGlide.targetPos) < 0.08) {
+                        cameraGlide.active = false;
+                    }
+                }
+                controls.update();
+            }
+
+            // 2. Advance Water Ripples & Monsoon Rain Splashes
+            mirrorWaterShader.uniforms.uTime.value = elapsed;
+            for (let i = 0; i < MAX_RIPPLES; i++) {
+                const r = rippleUniformArray[i];
+                if (r.z > 0.0) {
+                    r.z += dt;
+                    if (r.z > 7.0) r.z = -10.0;
+                }
+            }
+            if (currentSeason === 'rain') {
+                rainSplashTimer += dt;
+                if (rainSplashTimer > 0.22) {
+                    rainSplashTimer = 0;
+                    spawnPondRipple((Math.random() - 0.5) * 44, (Math.random() - 0.5) * 44, 0.28);
+                }
+            }
+
+            // 3. Animate Bonshō Bell Pavilion Swing
+            if (bonshoBellMesh && bellSwingAmp > 0.001) {
+                bellSwingPhase += dt * 4.8;
+                bonshoBellMesh.rotation.z = Math.sin(bellSwingPhase) * bellSwingAmp;
+                bellSwingAmp *= Math.pow(0.75, dt);
+            }
+
+            // 4. Animate Bamboo Shishi-odoshi Water Rocker
+            if (shishiTubeGroup) {
+                shishiState.timer += dt;
+                if (shishiState.phase === 'filling') {
+                    shishiTubeGroup.rotation.z = -0.18 + (shishiState.timer / 12.0) * 0.22;
+                    if (shishiState.timer >= 12.0) {
+                        triggerShishiOdoshi(false);
+                    }
+                } else if (shishiState.phase === 'tipping') {
+                    shishiTubeGroup.rotation.z = Math.min(0.68, shishiTubeGroup.rotation.z + dt * 4.2);
+                    if (shishiState.timer > 0.35) {
+                        shishiState.phase = 'returning';
+                        shishiState.timer = 0;
+                    }
+                } else if (shishiState.phase === 'returning') {
+                    shishiTubeGroup.rotation.z = THREE.MathUtils.lerp(shishiTubeGroup.rotation.z, -0.18, dt * 5.0);
+                    if (shishiState.timer > 0.6) {
+                        shishiState.phase = 'filling';
+                        shishiState.timer = 0;
+                    }
+                }
+            }
+
+            // 5. Update Boids Koi Flocking & Live S-Wave Spine Vertex Undulation
+            for (let f = koiFoodPellets.length - 1; f >= 0; f--) {
+                koiFoodPellets[f].life -= dt;
+                if (koiFoodPellets[f].life <= 0) {
+                    foodGroup.remove(koiFoodPellets[f].mesh);
+                    koiFoodPellets.splice(f, 1);
+                }
+            }
+
+            koiBoids.forEach((b, idx) => {
+                const accel = new THREE.Vector3();
+
+                if (koiFoodPellets.length > 0) {
+                    const targetFood = koiFoodPellets[0].mesh.position;
+                    const toFood = new THREE.Vector3(targetFood.x - b.pos.x, 0, targetFood.z - b.pos.z);
+                    if (toFood.length() < 0.65) {
+                        koiFoodPellets[0].life = 0;
+                    } else {
+                        accel.add(toFood.normalize().multiplyScalar(4.8));
+                    }
+                }
+
+                const distFromIsland = Math.hypot(b.pos.x, b.pos.z + 4.5);
+                if (distFromIsland < 14.6) {
+                    const away = new THREE.Vector3(b.pos.x, 0, b.pos.z + 4.5).normalize();
+                    accel.addScaledVector(away, 5.5);
+                }
+                if (Math.abs(b.pos.x) > 22) accel.x -= Math.sign(b.pos.x) * 4.0;
+                if (b.pos.z > 20 || b.pos.z < -22) accel.z -= Math.sign(b.pos.z) * 4.0;
+
+                koiBoids.forEach((other, oIdx) => {
+                    if (idx === oIdx) return;
+                    const d = b.pos.distanceTo(other.pos);
+                    if (d < 1.65 && d > 0.01) {
+                        const push = b.pos.clone().sub(other.pos).normalize().divideScalar(d);
+                        accel.addScaledVector(push, 2.2);
+                    } else if (d < 5.0) {
+                        accel.addScaledVector(other.vel, 0.12);
+                    }
+                });
+
+                b.vel.addScaledVector(accel, dt);
+                const maxSpeed = koiFoodPellets.length > 0 ? 3.8 : 1.85;
+                b.vel.clampLength(1.0, maxSpeed);
+                b.pos.addScaledVector(b.vel, dt);
+                b.pos.y = -0.15;
+
+                b.mesh.position.copy(b.pos);
+                b.mesh.lookAt(b.pos.x + b.vel.x, -0.15, b.pos.z + b.vel.z);
+
+                // Animate traveling S-wave along the Koi's 14-ring spine
+                const posAttr = b.mesh.geometry.attributes.position;
+                const rest = b.mesh.geometry.userData.restPositions;
+                if (posAttr && rest) {
+                    const arr = posAttr.array;
+                    const count = posAttr.count;
+                    for (let v = 0; v < count; v++) {
+                        const ix = v * 3;
+                        const rx = rest[ix];
+                        const ry = rest[ix + 1];
+                        const rz = rest[ix + 2];
+                        // Tail is toward negative Z; amplitude increases smoothly from head to tail
+                        const tailFactor = Math.max(0.0, (0.48 - rz) * 0.85);
+                        const sWave = Math.sin(elapsed * b.swimSpeed + b.phase - rz * 5.5) * 0.095 * tailFactor;
+                        arr[ix] = rx + sWave;
+                        arr[ix + 1] = ry;
+                        arr[ix + 2] = rz;
+                    }
+                    posAttr.needsUpdate = true;
+                }
+            });
+
+            // 6. Flicker Stone Lanterns & Animate Seasonal Weather Particles
+            lanternLights.forEach(item => {
+                const flk = Math.sin(elapsed * 7.0 + item.phase) * 0.10;
+                const base = currentTimeOfDay === 'night' ? 1.85 : (currentTimeOfDay === 'dusk' ? 1.15 : 0.55);
+                item.light.intensity = base + flk;
+            });
+
+            if (weatherParticles) {
+                const posAttr = weatherParticles.geometry.attributes.position;
+                const arr = posAttr.array;
+                const fallSpeed = currentSeason === 'rain' ? 0.42 : (currentSeason === 'snow' ? 0.045 : 0.028);
+                for (let i = 0; i < posAttr.count; i++) {
+                    const ix = i * 3;
+                    if (currentSeason === 'rain') {
+                        arr[ix] += 0.04;
+                        arr[ix + 1] -= fallSpeed;
+                    } else {
+                        arr[ix] += Math.sin(elapsed * 0.7 + i) * 0.022;
+                        arr[ix + 1] -= fallSpeed;
+                        arr[ix + 2] += Math.cos(elapsed * 0.6 + i * 0.5) * 0.022;
+                    }
+                    if (arr[ix + 1] < 0.15) {
+                        arr[ix + 1] = 31.0;
+                        arr[ix] = (Math.random() - 0.5) * 68;
+                        arr[ix + 2] = (Math.random() - 0.5) * 68;
+                    }
+                }
+                posAttr.needsUpdate = true;
+            }
+
+            // 7. Render Planar Mirror Reflection Pass + Main Viewport (with Subtle Bloom)
+            updateMirrorReflection();
+            if (composer && currentPipelineMode === 'render') {
+                composer.render();
+            } else {
+                renderer.render(scene, camera);
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (composer) {
+                composer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
+        window.onload = function () {
+            setCameraPreset(1);
+            animate();
+        };
+    </script>
+</body>
+
+</html>
